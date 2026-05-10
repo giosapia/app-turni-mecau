@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import calendar
 import random
+from weasyprint import HTML
 
 # --- LOGICA CALENDARIO E FESTIVI ---
 def get_festivi(year):
@@ -32,6 +33,41 @@ def format_giorno(d, m, y, lista_festivi):
     if dt in lista_festivi or dt.weekday() == 6: return f"🔴 {d}/{m} - {nome_giorno}"
     if dt.weekday() == 5: return f"🟡 {d}/{m} - {nome_giorno}"
     return f"{d}/{m} - {nome_giorno}"
+
+def genera_pdf_download(df, anno, mese_nome):
+    html_template = f'''
+    <html>
+    <head>
+        <style>
+            @page {{ size: A4 landscape; margin: 10mm; }}
+            body {{ font-family: Arial, sans-serif; font-size: 10pt; }}
+            h1 {{ text-align: center; color: #1f4e78; }}
+            table {{ width: 100%; border-collapse: collapse; }}
+            th {{ background: #1f4e78; color: white; padding: 8px; border: 1px solid #333; }}
+            td {{ padding: 6px; border: 1px solid #ccc; text-align: center; }}
+            .festivo {{ background-color: #ffcccc; }}
+            .sabato {{ background-color: #fff4cc; }}
+        </style>
+    </head>
+    <body>
+        <h1>Programmazione Turni MeCAU - {mese_nome} {anno}</h1>
+        <table>
+            <thead>
+                <tr><th>Giorno</th><th>MeCAU 1</th><th>MeCAU 2</th><th>MeCAU Notte</th><th>Bassa Int.</th></tr>
+            </thead>
+            <tbody>
+    '''
+    for _, row in df.iterrows():
+        classe = ""
+        if "🔴" in str(row['Giorno']): classe = 'class="festivo"'
+        elif "🟡" in str(row['Giorno']): classe = 'class="sabato"'
+        html_template += f'''
+            <tr {classe}>
+                <td>{row['Giorno']}</td><td>{row['MeCAU 1']}</td><td>{row['MeCAU 2']}</td>
+                <td>{row['MeCAU Notte']}</td><td>{row['Bassa Intensità']}</td>
+            </tr>'''
+    html_template += "</tbody></table></body></html>"
+    return HTML(string=html_template).write_pdf()
 
 # --- CONFIGURAZIONE ---
 st.set_page_config(page_title="Gestore Turni MeCAU", layout="wide")
@@ -73,19 +109,15 @@ def check_errors(df_in, ds_in):
     for idx, row in df_c.iterrows():
         g = row["Giorno"]
         attivi = [str(m) for m in [row["MeCAU 1"], row["MeCAU 2"], row["MeCAU Notte"], row["Bassa Intensità"]] if str(m).strip()]
-        
         if len(attivi) != len(set(attivi)):
             for d in set([m for m in attivi if attivi.count(m) > 1]): errs.append(f"🔴 **{g}**: {d} duplicato.")
         if idx > 0:
             ieri_notte = str(df_c.iloc[idx-1]["MeCAU Notte"])
             if ieri_notte.strip() and ieri_notte in attivi: errs.append(f"😴 **{g}**: {ieri_notte} post-notte.")
-        
         if idx > 2:
             for m in strutturati:
                 if any(df_c.iloc[idx-1, 1:] == m) and any(df_c.iloc[idx-2, 1:] == m) and any(df_c.iloc[idx-3, 1:] == m):
-                    if any(df_c.iloc[idx, 1:] == m):
-                        errs.append(f"⚠️ **{g}**: {m} > 3 turni consecutivi.")
-
+                    if any(df_c.iloc[idx, 1:] == m): errs.append(f"⚠️ **{g}**: {m} > 3 turni consecutivi.")
         for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Intensità"]:
             m = str(row[col])
             if m in strutturati:
@@ -95,35 +127,29 @@ def check_errors(df_in, ds_in):
                 elif v == "No Notte" and col == "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} No Notte.")
     return errs
 
-# --- ALGORITMO SUGGERIMENTO (Equità Notti) ---
+# --- ALGORITMO SUGGERIMENTO (RIGIDO E BILANCIATO) ---
 def suggerisci_turni():
     df = st.session_state.df_turni.fillna("").replace("None", "").copy()
     ds = st.session_state.df_desid.fillna("").replace("None", "").copy()
-    
     for idx in range(len(df)):
-        # Ordine colonne: diamo precedenza alla Notte per bilanciarla subito
         for col in ["MeCAU Notte", "MeCAU 1", "MeCAU 2"]:
-            if random.random() < 0.20: # Probabilità di lasciare vuoto
-                continue
-                
             if not str(df.at[idx, col]).strip():
-                # Se è una notte, ordiniamo i medici per numero di notti già fatte
                 if col == "MeCAU Notte":
                     medici_shuffled = sorted(strutturati, key=lambda m: (df["MeCAU Notte"] == m).sum())
                 else:
                     medici_shuffled = strutturati.copy()
                     random.shuffle(medici_shuffled)
-                
                 for med in medici_shuffled:
-                    # Limiti 7 giorni
+                    ore_attuali = (df == med).sum().sum() * 12
+                    assente = ds[med].isin(["Ferie", "Corso"]).sum() if med in ds.columns else 0
+                    abbuono = assente * 7.6
+                    if (ore_attuali + abbuono + 12) > (target_ore + 6): continue
+                    
                     start_7d = max(0, idx - 6)
                     ore_sett = (df.iloc[start_7d:idx+1] == med).sum().sum() * 12
-                    
                     consecutivi = 0
                     if idx > 0 and any(df.iloc[idx-1, 1:] == med): consecutivi += 1
                     if idx > 1 and any(df.iloc[idx-2, 1:] == med): consecutivi += 1
-                    
-                    # Riposo post-weekend
                     post_weekend = False
                     if idx >= 1:
                         fatto_sab = any(df.iloc[idx-2, 1:] == med) if idx >= 2 else False
@@ -131,16 +157,9 @@ def suggerisci_turni():
                         if fatto_sab and fatto_dom and (idx % 7 in [0, 1]): post_weekend = True
 
                     if (ore_sett + 12) <= 48 and consecutivi < 3 and not post_weekend:
-                        ore_mese = (df == med).sum().sum() * 12
-                        assente = ds[med].isin(["Ferie", "Corso"]).sum() if med in ds.columns else 0
-                        abbuono = assente * 7.6
-                        
-                        if (ore_mese + abbuono) < (target_ore + 48):
-                            df.at[idx, col] = med
-                            if check_errors(df, ds):
-                                df.at[idx, col] = ""
-                            else:
-                                break
+                        df.at[idx, col] = med
+                        if check_errors(df, ds): df.at[idx, col] = ""
+                        else: break
     st.session_state.df_turni = df
 
 # --- INTERFACCIA ---
@@ -151,9 +170,15 @@ with tab1:
     st.session_state.df_desid = st.data_editor(st.session_state.df_desid.fillna("").replace("None", ""), column_config=config_des, use_container_width=True)
 
 with tab2:
-    if st.button("🪄 Genera Bozza Turni"):
-        suggerisci_turni()
-        st.rerun()
+    col_bt1, col_bt2 = st.columns(2)
+    with col_bt1:
+        if st.button("🪄 Genera bozza turni", type="primary"):
+            suggerisci_turni()
+            st.rerun()
+    with col_bt2:
+        if st.button("📥 Prepara PDF per la stampa"):
+            pdf_data = genera_pdf_download(st.session_state.df_turni, anno, calendar.month_name[mese_idx])
+            st.download_button(label="Clicca qui per scaricare il PDF", data=pdf_data, file_name=f"Turni_MeCAU_{mese_idx}.pdf", mime="application/pdf")
     
     lista_errori = check_errors(st.session_state.df_turni, st.session_state.df_desid)
     if lista_errori:
@@ -170,7 +195,7 @@ with tab2:
     st.session_state.df_turni = st.data_editor(st.session_state.df_turni.fillna("").replace("None", ""), column_config=config_turni, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("Riepilogo Ore e Notti")
+    st.subheader("📊 Riepilogo Ore e Bilancio Legale")
     df_v = st.session_state.df_turni.fillna("").replace("None", "")
     report = []
     for m in strutturati:
@@ -179,11 +204,6 @@ with tab3:
         assente = st.session_state.df_desid[m].isin(["Ferie", "Corso"]).sum() if m in st.session_state.df_desid.columns else 0
         ore_abb = assente * 7.6
         bilancio = round((ore_lav + ore_abb) - target_ore, 1)
-        report.append({
-            "Medico": m, 
-            "Ore Lav.": ore_lav, 
-            "Notti": notti_fatte,
-            "Abbuono (h)": ore_abb, 
-            "Bilancio": bilancio
-        })
+        extra = bilancio if bilancio > 0 else 0
+        report.append({"Medico": m, "Ore Totali": ore_lav, "Notti": notti_fatte, "Abbuono": ore_abb, "Target": round(target_ore, 1), "Bilancio": bilancio, "di cui PA": extra})
     st.table(pd.DataFrame(report))
