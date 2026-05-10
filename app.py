@@ -151,7 +151,7 @@ with tab1:
     st.session_state.df_desid = st.data_editor(st.session_state.df_desid.fillna("").replace("None", ""), column_config=config_des, use_container_width=True)
 
 with tab2:
-    if st.button("🪄 Genera Bozza Bilanciata (Notti Eque)"):
+    if st.button("🪄 Genera Bozza Turni"):
         suggerisci_turni()
         st.rerun()
     
