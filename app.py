@@ -95,25 +95,29 @@ def check_errors(df_in, ds_in):
                 elif v == "No Notte" and col == "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} No Notte.")
     return errs
 
-# --- ALGORITMO SUGGERIMENTO (Flessibile sulle sale) ---
+# --- ALGORITMO SUGGERIMENTO (Equità Notti) ---
 def suggerisci_turni():
     df = st.session_state.df_turni.fillna("").replace("None", "").copy()
     ds = st.session_state.df_desid.fillna("").replace("None", "").copy()
     
     for idx in range(len(df)):
-        # Sostituiamo il salto totale con un salto per singola cella per permettere una sola sala coperta
-        for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]:
-            if random.random() < 0.25: # 25% di probabilità di lasciare il singolo slot vuoto volutamente
+        # Ordine colonne: diamo precedenza alla Notte per bilanciarla subito
+        for col in ["MeCAU Notte", "MeCAU 1", "MeCAU 2"]:
+            if random.random() < 0.20: # Probabilità di lasciare vuoto
                 continue
                 
             if not str(df.at[idx, col]).strip():
-                medici_shuffled = strutturati.copy()
-                random.shuffle(medici_shuffled)
+                # Se è una notte, ordiniamo i medici per numero di notti già fatte
+                if col == "MeCAU Notte":
+                    medici_shuffled = sorted(strutturati, key=lambda m: (df["MeCAU Notte"] == m).sum())
+                else:
+                    medici_shuffled = strutturati.copy()
+                    random.shuffle(medici_shuffled)
                 
                 for med in medici_shuffled:
                     # Limiti 7 giorni
                     start_7d = max(0, idx - 6)
-                    ore_sett = (df.iloc[start_7d:idx+1] == med).sum().sum() * 12 # +1 per includere eventuali altre sale già riempite oggi
+                    ore_sett = (df.iloc[start_7d:idx+1] == med).sum().sum() * 12
                     
                     consecutivi = 0
                     if idx > 0 and any(df.iloc[idx-1, 1:] == med): consecutivi += 1
@@ -126,13 +130,12 @@ def suggerisci_turni():
                         fatto_dom = any(df.iloc[idx-1, 1:] == med)
                         if fatto_sab and fatto_dom and (idx % 7 in [0, 1]): post_weekend = True
 
-                    # Validazione turno
                     if (ore_sett + 12) <= 48 and consecutivi < 3 and not post_weekend:
                         ore_mese = (df == med).sum().sum() * 12
                         assente = ds[med].isin(["Ferie", "Corso"]).sum() if med in ds.columns else 0
                         abbuono = assente * 7.6
                         
-                        if (ore_mese + abbuono) < (target_ore + 48): # Ampia tolleranza per arrivare a fine mese
+                        if (ore_mese + abbuono) < (target_ore + 48):
                             df.at[idx, col] = med
                             if check_errors(df, ds):
                                 df.at[idx, col] = ""
@@ -148,7 +151,7 @@ with tab1:
     st.session_state.df_desid = st.data_editor(st.session_state.df_desid.fillna("").replace("None", ""), column_config=config_des, use_container_width=True)
 
 with tab2:
-    if st.button("🪄 Genera Bozza Mensile Flessibile"):
+    if st.button("🪄 Genera Bozza Bilanciata (Notti Eque)"):
         suggerisci_turni()
         st.rerun()
     
@@ -167,13 +170,20 @@ with tab2:
     st.session_state.df_turni = st.data_editor(st.session_state.df_turni.fillna("").replace("None", ""), column_config=config_turni, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("Riepilogo Ore")
+    st.subheader("Riepilogo Ore e Notti")
     df_v = st.session_state.df_turni.fillna("").replace("None", "")
     report = []
     for m in strutturati:
         ore_lav = (df_v.iloc[:, 1:] == m).sum().sum() * 12
+        notti_fatte = (df_v["MeCAU Notte"] == m).sum()
         assente = st.session_state.df_desid[m].isin(["Ferie", "Corso"]).sum() if m in st.session_state.df_desid.columns else 0
         ore_abb = assente * 7.6
         bilancio = round((ore_lav + ore_abb) - target_ore, 1)
-        report.append({"Medico": m, "Ore Lav.": ore_lav, "Abbuono (h)": ore_abb, "Bilancio": bilancio})
+        report.append({
+            "Medico": m, 
+            "Ore Lav.": ore_lav, 
+            "Notti": notti_fatte,
+            "Abbuono (h)": ore_abb, 
+            "Bilancio": bilancio
+        })
     st.table(pd.DataFrame(report))
