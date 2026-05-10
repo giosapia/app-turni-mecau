@@ -47,8 +47,7 @@ def crea_pdf_fpdf(df, anno, mese_idx, lista_festivi):
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(0, 0, 0)
     for i, row in df.iterrows():
-        d = i + 1
-        dt = datetime(anno, mese_idx, d).date()
+        dt = datetime(anno, mese_idx, i + 1).date()
         pdf.set_fill_color(255, 255, 255)
         fill = False
         if dt in lista_festivi or dt.weekday() == 6:
@@ -97,8 +96,16 @@ def suggerisci_turni():
             if not str(df.at[idx, col]).strip():
                 medici_shuffled = sorted(strutturati, key=lambda m: (df["MeCAU Notte"] == m).sum()) if col == "MeCAU Notte" else random.sample(strutturati, len(strutturati))
                 for med in medici_shuffled:
+                    pref = ds.at[df.at[idx, "Giorno"], med]
+                    # Vincolo Blocco (No turno, No abbuono)
+                    if pref in ["Ferie", "Corso", "Blocco"]: continue
+                    if pref == "No Giorno" and col != "MeCAU Notte": continue
+                    if pref == "No Notte" and col == "MeCAU Notte": continue
+                    
                     ore_tot = (df == med).sum().sum() * 12
-                    abb = ds[med].isin(["Ferie", "Corso", "Blocco"]).sum() * 7.6
+                    # Abbuono solo per Ferie e Corso
+                    abb = ds[med].isin(["Ferie", "Corso"]).sum() * 7.6
+                    
                     if (ore_tot + abb + 12) > target_ore: continue
                     if idx > 0 and str(df.at[idx-1, "MeCAU Notte"]) == med: continue
                     start_7d = max(0, idx - 6)
@@ -110,8 +117,7 @@ def suggerisci_turni():
 tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo"])
 
 with tab1:
-    # RIPRISTINO MENU A TENDINA DESIDERATA
-    config_des = {m: st.column_config.SelectboxColumn(m, options=["", "Ferie", "Corso", "Blocco"]) for m in strutturati}
+    config_des = {m: st.column_config.SelectboxColumn(m, options=["", "Ferie", "Corso", "Blocco", "No Giorno", "No Notte"]) for m in strutturati}
     st.session_state.df_desid = st.data_editor(st.session_state.df_desid, column_config=config_des, use_container_width=True)
 
 with tab2:
@@ -140,7 +146,8 @@ with tab3:
     report = []
     for m in strutturati:
         ore_l = (st.session_state.df_turni.iloc[:, 1:] == m).sum().sum() * 12
-        abb = st.session_state.df_desid[m].isin(["Ferie", "Corso", "Blocco"]).sum() * 7.6
+        # Calcolo abbuono escludendo "Blocco"
+        abb = st.session_state.df_desid[m].isin(["Ferie", "Corso"]).sum() * 7.6
         diff = round((ore_l + abb) - target_ore, 1)
         report.append({"Medico": m, "Ore Lavorate": ore_l, "Abbuono": abb, "Target": round(target_ore, 1), "Differenza": diff})
     st.table(pd.DataFrame(report))
