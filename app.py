@@ -90,39 +90,38 @@ def suggerisci_turni():
     df = st.session_state.df_turni.fillna("").copy()
     ds = st.session_state.df_desid.fillna("").copy()
     
-    # PULIZIA PREVENTIVA (tranne modifiche manuali se volute, ma qui resettiamo per la bozza)
+    # Resettiamo solo le colonne degli strutturati
     for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]:
         df[col] = ""
 
-    # LOGICA A "SPALMARE": Prima tutte le notti del mese, poi le sale
-    for col in ["MeCAU Notte", "MeCAU 1", "MeCAU 2"]:
-        # Mischiamo i giorni per non riempire sempre dall'1 al 31 in ordine
-        giorni_indici = list(range(len(df)))
-        # random.shuffle(giorni_indici) # Se vuoi casualità totale togli il commento
+    # Gira per giorni, ma per ogni giorno prova a riempire i turni in ordine sparso
+    for idx in range(len(df)):
+        turni_del_giorno = ["MeCAU Notte", "MeCAU 1", "MeCAU 2"]
+        random.shuffle(turni_del_giorno) # Cruciale: non privilegia sempre lo stesso turno ogni giorno
         
-        for idx in giorni_indici:
-            # Chi ha meno ore lavorate al momento?
-            medici_ordinati = sorted(strutturati, key=lambda m: (df == m).sum().sum())
+        for col in turni_del_giorno:
+            # Ordiniamo i medici per chi ha lavorato meno FINO A QUESTO MOMENTO
+            medici_liberi = sorted(strutturati, key=lambda m: (df == m).sum().sum())
             
-            for med in medici_ordinati:
+            for med in medici_liberi:
                 pref = ds.at[df.at[idx, "Giorno"], med]
                 if pref in ["Ferie", "Corso", "Blocco"]: continue
                 if pref == "No Giorno" and col != "MeCAU Notte": continue
                 if pref == "No Notte" and col == "MeCAU Notte": continue
                 
-                ore_attuali = (df == med).sum().sum() * 12
+                ore_fatte = (df == med).sum().sum() * 12
                 abb = ds[med].isin(["Ferie", "Corso"]).sum() * 7.6
                 
-                # RIGIDISSIMO: Se il turno da 12h sfora il target, salta.
-                if (ore_attuali + abb + 12) > target_ore: continue
+                # BLOCCO RIGIDO ORE
+                if (ore_fatte + abb + 12) > target_ore: continue
                 
-                # Riposo 11h (no turno se ha fatto notte il giorno prima)
+                # Vincoli di riposo
                 if idx > 0 and str(df.at[idx-1, "MeCAU Notte"]) == med: continue
-                # No doppio turno nello stesso giorno
                 if med in [df.at[idx, "MeCAU 1"], df.at[idx, "MeCAU 2"], df.at[idx, "MeCAU Notte"]]: continue
                 
                 df.at[idx, col] = med
                 break
+                
     st.session_state.df_turni = df
 
 tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo"])
@@ -134,7 +133,7 @@ with tab1:
 with tab2:
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🪄 Genera Turni (Spalmati nel mese)", type="primary"):
+        if st.button("🪄 Genera Bozza (Bilanciata)", type="primary"):
             suggerisci_turni()
             st.rerun()
     with c2:
