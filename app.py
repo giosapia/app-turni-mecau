@@ -23,17 +23,12 @@ def get_festivi(year):
     lista_date.extend([pasqua, pasqua + timedelta(days=1)])
     return lista_date
 
-def format_giorno_emoji(d, m, y, festivi):
+def format_giorno(d, m, y):
     dt = datetime(y, m, d).date()
     nome_giorno = ["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"][dt.weekday()]
-    label = f"{d}/{m} - {nome_giorno}"
-    if dt in festivi or dt.weekday() == 6:
-        return f"🔴 {label}"
-    elif dt.weekday() == 5:
-        return f"🟡 {label}"
-    return f"⚪ {label}"
+    return f"{d}/{m} - {nome_giorno}"
 
-# --- FUNZIONE PDF (FPDF2) ---
+# --- FUNZIONE PDF (VERSIONE FPDF2 - ULTRA STABILE) ---
 class PDF(FPDF):
     def header(self):
         self.set_font('Helvetica', 'B', 16)
@@ -46,30 +41,64 @@ def crea_pdf_finale(df, anno, mese_idx, festivi):
     mese_nome = calendar.month_name[mese_idx].upper()
     pdf.custom_title = f"PROGRAMMAZIONE TURNI MECAU - {mese_nome} {anno}"
     pdf.add_page()
+    
+    # Intestazione Tabella
+    cols = ["Giorno", "MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Int."]
     widths = [40, 60, 60, 60, 55]
+    
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_fill_color(31, 78, 120)
     pdf.set_text_color(255, 255, 255)
-    for i, col in enumerate(["Giorno", "MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Int."]):
+    for i, col in enumerate(cols):
         pdf.cell(widths[i], 10, col, border=1, align="C", fill=True)
     pdf.ln()
+    
+    # Righe
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(0, 0, 0)
+    
     for i, row in df.iterrows():
         dt = datetime(anno, mese_idx, i + 1).date()
+        
+        # Colore sfondo e Pallino
+        if dt in festivi or dt.weekday() == 6:
+            pdf.set_fill_color(255, 230, 230) # Rosso tenue
+            fill = True
+            dot_color = (255, 0, 0)
+        elif dt.weekday() == 5:
+            pdf.set_fill_color(255, 255, 200) # Giallo tenue
+            fill = True
+            dot_color = (255, 200, 0)
+        else:
+            pdf.set_fill_color(255, 255, 255)
+            fill = True
+            dot_color = None
+
+        # Cella Giorno con Pallino
+        curr_x = pdf.get_x()
+        curr_y = pdf.get_y()
+        pdf.cell(widths[0], 10, "", border=1, fill=fill)
+        
+        if dot_color:
+            pdf.set_fill_color(*dot_color)
+            pdf.ellipse(curr_x + 2, curr_y + 3, 4, 4, style='F')
+            
+        pdf.set_xy(curr_x + 7, curr_y)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(widths[0]-7, 10, str(row['Giorno']), border=0)
+        
+        # Altre Celle
+        pdf.set_xy(curr_x + widths[0], curr_y)
+        pdf.set_fill_color(255, 255, 255) # Reset per celle interne se vuoi, o lascia fill
         if dt in festivi or dt.weekday() == 6: pdf.set_fill_color(255, 230, 230)
         elif dt.weekday() == 5: pdf.set_fill_color(255, 255, 200)
-        else: pdf.set_fill_color(255, 255, 255)
         
-        # Pulizia emoji per il PDF (alcuni font PDF non le amano)
-        label_pulita = row['Giorno'].replace("🔴 ", "").replace("🟡 ", "").replace("⚪ ", "")
-        
-        pdf.cell(widths[0], 10, label_pulita, border=1, fill=True)
-        pdf.cell(widths[1], 10, str(row['MeCAU 1']), border=1, align="C", fill=True)
-        pdf.cell(widths[2], 10, str(row['MeCAU 2']), border=1, align="C", fill=True)
-        pdf.cell(widths[3], 10, str(row['MeCAU Notte']), border=1, align="C", fill=True)
-        pdf.cell(widths[4], 10, str(row['Bassa Intensità']), border=1, align="C", fill=True)
+        pdf.cell(widths[1], 10, str(row['MeCAU 1']), border=1, align="C", fill=fill)
+        pdf.cell(widths[2], 10, str(row['MeCAU 2']), border=1, align="C", fill=fill)
+        pdf.cell(widths[3], 10, str(row['MeCAU Notte']), border=1, align="C", fill=fill)
+        pdf.cell(widths[4], 10, str(row['Bassa Intensità']), border=1, align="C", fill=fill)
         pdf.ln()
+        
     return pdf.output()
 
 # --- APP STREAMLIT ---
@@ -86,48 +115,49 @@ feriali = sum(1 for d in range(1, num_days + 1) if datetime(anno, mese_idx, d).w
 target_ore = feriali * 7.6
 st.sidebar.metric("Target Orario", f"{target_ore:.1f}h")
 
-# Reset se cambia mese
-if 'prev_mese' not in st.session_state or st.session_state.prev_mese != mese_idx:
-    labels = [format_giorno_emoji(d, mese_idx, anno, festivi) for d in range(1, num_days + 1)]
+if 'df_turni' not in st.session_state or st.session_state.get('prev_mese') != mese_idx:
     st.session_state.df_turni = pd.DataFrame("", index=range(num_days), columns=["Giorno", "MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Intensità"])
-    st.session_state.df_turni["Giorno"] = labels
-    st.session_state.df_desid = pd.DataFrame("", index=labels, columns=strutturati)
+    st.session_state.df_turni["Giorno"] = [format_giorno(d, mese_idx, anno) for d in range(1, num_days + 1)]
+    st.session_state.df_desid = pd.DataFrame("", index=st.session_state.df_turni["Giorno"], columns=strutturati)
     st.session_state.prev_mese = mese_idx
 
 def suggerisci_turni():
     df = st.session_state.df_turni.copy()
     ds = st.session_state.df_desid.copy()
     for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]: df[col] = ""
+
+    # Gira per turni in modo sparso per evitare buchi concentrati
     for col in ["MeCAU Notte", "MeCAU 1", "MeCAU 2"]:
         for idx in range(len(df)):
+            if df.at[idx, col] != "": continue
             medici = sorted(strutturati, key=lambda m: (df == m).sum().sum())
             for med in medici:
                 pref = ds.at[df.at[idx, "Giorno"], med]
                 if pref in ["Ferie", "Corso", "Blocco"]: continue
                 if pref == "No Giorno" and col != "MeCAU Notte": continue
                 if pref == "No Notte" and col == "MeCAU Notte": continue
+                
                 ore = (df == med).sum().sum() * 12
                 abb = ds[med].isin(["Ferie", "Corso"]).sum() * 7.6
                 if (ore + abb + 12) > target_ore: continue
                 if idx > 0 and df.at[idx-1, "MeCAU Notte"] == med: continue
                 if med in [df.at[idx, "MeCAU 1"], df.at[idx, "MeCAU 2"], df.at[idx, "MeCAU Notte"]]: continue
+                
                 df.at[idx, col] = med
                 break
     st.session_state.df_turni = df
 
-# Visualizzazione
-t1, t2, t3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Bilancio"])
+t1, t2, t3 = st.tabs(["📅 Desiderata", "🛠️ Griglia", "📊 Bilancio"])
 
 with t1:
-    st.info("🔴 = Domenica/Festivo | 🟡 = Sabato | ⚪ = Feriale")
     st.session_state.df_desid = st.data_editor(st.session_state.df_desid, use_container_width=True)
 
 with t2:
-    c1, c2 = st.columns(2)
-    if c1.button("🪄 Genera Bozza Bilanciata", type="primary"):
+    col_a, col_b = st.columns(2)
+    if col_a.button("🪄 Genera Bozza Bilanciata", type="primary"):
         suggerisci_turni()
         st.rerun()
-    if c2.button("📥 Scarica PDF"):
+    if col_b.button("📥 Scarica PDF con Pallini"):
         pdf_bytes = crea_pdf_finale(st.session_state.df_turni, anno, mese_idx, festivi)
         st.download_button("Salva PDF", pdf_bytes, f"Turni_{mese_idx}.pdf", "application/pdf")
     
