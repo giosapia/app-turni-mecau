@@ -21,7 +21,7 @@ def get_festivi(year):
 st.set_page_config(page_title="Gestore Turni MeCAU", layout="wide")
 st.title("🏥 Gestore Turni MeCAU")
 
-# --- SIDEBAR: CONFIGURAZIONE ---
+# --- SIDEBAR ---
 st.sidebar.header("⚙️ Configurazione")
 anno = st.sidebar.number_input("Anno", value=2026)
 mese_idx = st.sidebar.selectbox("Mese", range(1, 13), index=4)
@@ -38,29 +38,27 @@ gettonisti = [x.strip() for x in gettonisti_txt.split(",") if x.strip()]
 lista_tutti = [""] + strutturati + jolly
 lista_bassa = [""] + gettonisti
 
-# Calcolo Monte Ore Target
 num_days = calendar.monthrange(anno, mese_idx)[1]
 festivi = get_festivi(anno)
 giorni_feriali = sum(1 for d in range(1, num_days + 1) if datetime(anno, mese_idx, d).weekday() < 5 and datetime(anno, mese_idx, d).date() not in festivi)
 target_ore = giorni_feriali * 7.6
 st.sidebar.metric("Monte Ore Target", f"{target_ore:.1f}h")
 
-# --- STATO DELLA SESSIONE (Per non perdere i dati tra i tab) ---
+# --- STATO DELLA SESSIONE ---
 if 'df_turni' not in st.session_state:
     giorni = [f"{d}/{mese_idx}" for d in range(1, num_days + 1)]
     st.session_state.df_turni = pd.DataFrame({
         "Giorno": giorni, "MeCAU 1": "", "MeCAU 2": "", "MeCAU Notte": "", "Bassa Intensità": ""
     })
-
 if 'df_desid' not in st.session_state:
     giorni = [f"{d}/{mese_idx}" for d in range(1, num_days + 1)]
     st.session_state.df_desid = pd.DataFrame(index=giorni, columns=strutturati).fillna("")
 
-# --- INTERFACCIA A TAB ---
-tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo & Buchi"])
+# --- INTERFACCIA ---
+tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo & Errori"])
 
 with tab1:
-    st.subheader("Inserimento Vincoli (Strutturati)")
+    st.subheader("Inserimento Vincoli")
     opts = ["", "Ferie", "Corso", "Blocco", "No Giorno", "No Notte"]
     config_des = {m: st.column_config.SelectboxColumn(m, options=opts) for m in strutturati}
     st.session_state.df_desid = st.data_editor(st.session_state.df_desid, column_config=config_des, use_container_width=True)
@@ -77,33 +75,49 @@ with tab2:
     st.session_state.df_turni = st.data_editor(st.session_state.df_turni, column_config=config_turni, use_container_width=True, hide_index=True)
 
 with tab3:
-    col1, col2 = st.columns([2, 1])
+    col_ore, col_errori = st.columns([1.5, 1])
     
-    with col1:
-        st.subheader("Conteggio Ore Strutturati")
+    with col_ore:
+        st.subheader("Conteggio Ore")
         report = []
         for m in strutturati:
-            # Conteggio turni (12h l'uno)
-            ore_lavorate = (st.session_state.df_turni == m).sum().sum() * 12
-            # Conteggio ferie/corsi (7.6h l'uno)
+            ore_lavorate = (st.session_state.df_turni.iloc[:, 1:] == m).sum().sum() * 12
             assente = st.session_state.df_desid[m].isin(["Ferie", "Corso"]).sum()
             ore_abbuonate = assente * 7.6
             totale = ore_lavorate + ore_abbuonate
-            bilancio = totale - target_ore
-            
-            report.append({
-                "Medico": m, "Ore Lavorate": ore_lavorate, 
-                "Ferie/Corsi (h)": ore_abbuonate, "Totale": totale, "Bilancio (PA)": bilancio
-            })
-        
+            report.append({"Medico": m, "Ore Lavorate": ore_lavorate, "Ferie/Corsi (h)": ore_abbuonate, "Totale": totale, "Bilancio": totale - target_ore})
         st.table(pd.DataFrame(report))
 
-    with col2:
-        st.subheader("Turni Vacanti")
-        v_mec1 = st.session_state.df_turni[st.session_state.df_turni["MeCAU 1"] == ""].Giorno.tolist()
-        v_mec2 = st.session_state.df_turni[st.session_state.df_turni["MeCAU 2"] == ""].Giorno.tolist()
-        v_notte = st.session_state.df_turni[st.session_state.df_turni["MeCAU Notte"] == ""].Giorno.tolist()
+    with col_errori:
+        st.subheader("⚠️ Errori Riscontrati")
+        errori = []
+        df = st.session_state.df_turni
+        ds = st.session_state.df_desid
         
-        st.warning(f"MeCAU 1 vuoti: {len(v_mec1)}")
-        st.warning(f"MeCAU 2 vuoti: {len(v_mec2)}")
-        st.error(f"Notti vuote: {len(v_notte)}")
+        for idx, row in df.iterrows():
+            giorno = row["Giorno"]
+            medici_giorno = [row["MeCAU 1"], row["MeCAU 2"], row["MeCAU Notte"], row["Bassa Intensità"]]
+            medici_attivi = [m for m in medici_giorno if m != ""]
+            
+            # 1. Controllo Doppi Turni
+            if len(medici_attivi) != len(set(medici_attivi)):
+                duplicati = set([m for m in medici_attivi if medici_attivi.count(m) > 1])
+                for d in duplicati:
+                    errori.append(f"🔴 **{giorno}**: {d} è segnato in più turni lo stesso giorno.")
+            
+            # 2. Controllo Desiderata
+            for col_name in ["MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Intensità"]:
+                m = row[col_name]
+                if m in strutturati:
+                    vincolo = ds.at[giorno, m]
+                    if vincolo in ["Ferie", "Corso", "Blocco"]:
+                        errori.append(f"❌ **{giorno}**: {m} è in {col_name} ma è segnato in '{vincolo}'.")
+                    elif vincolo == "No Giorno" and col_name != "MeCAU Notte":
+                        errori.append(f"🚫 **{giorno}**: {m} è in {col_name} ma ha il vincolo 'No Giorno'.")
+                    elif vincolo == "No Notte" and col_name == "MeCAU Notte":
+                        errori.append(f"🚫 **{giorno}**: {m} è in Notte ma ha il vincolo 'No Notte'.")
+
+        if errori:
+            for e in errori: st.write(e)
+        else:
+            st.success("Nessun conflitto rilevato!")
