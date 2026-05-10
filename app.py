@@ -3,9 +3,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 import calendar
 import random
-from weasyprint import HTML
+from fpdf import FPDF
 
-# --- LOGICA CALENDARIO E FESTIVI ---
+# --- LOGICA CALENDARIO E FESTIVI (Invariata) ---
 def get_festivi(year):
     festivi_fissi = [(1, 1), (1, 6), (4, 25), (5, 1), (6, 2), (8, 15), (11, 1), (12, 8), (12, 25), (12, 26)]
     lista_date = [datetime(year, m, g).date() for m, g in festivi_fissi]
@@ -30,46 +30,50 @@ def get_festivi(year):
 def format_giorno(d, m, y, lista_festivi):
     dt = datetime(y, m, d).date()
     nome_giorno = ["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"][dt.weekday()]
-    if dt in lista_festivi or dt.weekday() == 6: return f"🔴 {d}/{m} - {nome_giorno}"
-    if dt.weekday() == 5: return f"🟡 {d}/{m} - {nome_giorno}"
+    if dt in lista_festivi or dt.weekday() == 6: return f"F {d}/{m} - {nome_giorno}"
+    if dt.weekday() == 5: return f"S {d}/{m} - {nome_giorno}"
     return f"{d}/{m} - {nome_giorno}"
 
-def genera_pdf_download(df, anno, mese_nome):
-    html_template = f'''
-    <html>
-    <head>
-        <style>
-            @page {{ size: A4 landscape; margin: 10mm; }}
-            body {{ font-family: Arial, sans-serif; font-size: 10pt; }}
-            h1 {{ text-align: center; color: #1f4e78; }}
-            table {{ width: 100%; border-collapse: collapse; }}
-            th {{ background: #1f4e78; color: white; padding: 8px; border: 1px solid #333; }}
-            td {{ padding: 6px; border: 1px solid #ccc; text-align: center; }}
-            .festivo {{ background-color: #ffcccc; }}
-            .sabato {{ background-color: #fff4cc; }}
-        </style>
-    </head>
-    <body>
-        <h1>Programmazione Turni MeCAU - {mese_nome} {anno}</h1>
-        <table>
-            <thead>
-                <tr><th>Giorno</th><th>MeCAU 1</th><th>MeCAU 2</th><th>MeCAU Notte</th><th>Bassa Int.</th></tr>
-            </thead>
-            <tbody>
-    '''
+# --- NUOVA FUNZIONE PDF (SENZA ERRORI) ---
+def crea_pdf_fpdf(df, anno, mese_nome):
+    pdf = FPDF(orientation="L", unit="mm", format="A4")
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, f"Programmazione Turni MeCAU - {mese_nome} {anno}", ln=True, align="C")
+    pdf.ln(5)
+    
+    # Intestazioni
+    pdf.set_font("Arial", "B", 10)
+    pdf.set_fill_color(31, 78, 120)
+    pdf.set_text_color(255, 255, 255)
+    cols = ["Giorno", "MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Int."]
+    widths = [40, 60, 60, 60, 50]
+    for i, col in enumerate(cols):
+        pdf.cell(widths[i], 10, col, border=1, align="C", fill=True)
+    pdf.ln()
+    
+    # Dati
+    pdf.set_font("Arial", "", 9)
+    pdf.set_text_color(0, 0, 0)
     for _, row in df.iterrows():
-        classe = ""
-        if "🔴" in str(row['Giorno']): classe = 'class="festivo"'
-        elif "🟡" in str(row['Giorno']): classe = 'class="sabato"'
-        html_template += f'''
-            <tr {classe}>
-                <td>{row['Giorno']}</td><td>{row['MeCAU 1']}</td><td>{row['MeCAU 2']}</td>
-                <td>{row['MeCAU Notte']}</td><td>{row['Bassa Intensità']}</td>
-            </tr>'''
-    html_template += "</tbody></table></body></html>"
-    return HTML(string=html_template).write_pdf()
+        fill = False
+        if "F " in str(row['Giorno']):
+            pdf.set_fill_color(255, 200, 200)
+            fill = True
+        elif "S " in str(row['Giorno']):
+            pdf.set_fill_color(255, 244, 200)
+            fill = True
+        
+        pdf.cell(widths[0], 8, str(row['Giorno']), border=1, fill=fill)
+        pdf.cell(widths[1], 8, str(row['MeCAU 1']), border=1, fill=fill)
+        pdf.cell(widths[2], 8, str(row['MeCAU 2']), border=1, fill=fill)
+        pdf.cell(widths[3], 8, str(row['MeCAU Notte']), border=1, fill=fill)
+        pdf.cell(widths[4], 8, str(row['Bassa Intensità']), border=1, fill=fill)
+        pdf.ln()
+    
+    return pdf.output()
 
-# --- CONFIGURAZIONE ---
+# --- IL RESTO DEL CODICE (MONTE ORE E INTERFACCIA) ---
 st.set_page_config(page_title="Gestore Turni MeCAU", layout="wide")
 st.title("🏥 Gestore Turni MeCAU")
 
@@ -102,7 +106,6 @@ if 'df_turni' not in st.session_state or st.session_state.get('prev_mese') != me
     st.session_state.prev_mese = mese_idx
     st.session_state.prev_anno = anno
 
-# --- LOGICA ERRORI ---
 def check_errors(df_in, ds_in):
     errs = []
     df_c = df_in.fillna("").replace("None", "")
@@ -127,7 +130,6 @@ def check_errors(df_in, ds_in):
                 elif v == "No Notte" and col == "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} No Notte.")
     return errs
 
-# --- ALGORITMO SUGGERIMENTO (RIGIDO E BILANCIATO) ---
 def suggerisci_turni():
     df = st.session_state.df_turni.fillna("").replace("None", "").copy()
     ds = st.session_state.df_desid.fillna("").replace("None", "").copy()
@@ -162,7 +164,6 @@ def suggerisci_turni():
                         else: break
     st.session_state.df_turni = df
 
-# --- INTERFACCIA ---
 tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo"])
 
 with tab1:
@@ -176,9 +177,9 @@ with tab2:
             suggerisci_turni()
             st.rerun()
     with col_bt2:
-        if st.button("📥 Prepara PDF per la stampa"):
-            pdf_data = genera_pdf_download(st.session_state.df_turni, anno, calendar.month_name[mese_idx])
-            st.download_button(label="Clicca qui per scaricare il PDF", data=pdf_data, file_name=f"Turni_MeCAU_{mese_idx}.pdf", mime="application/pdf")
+        if st.button("📥 Scarica PDF"):
+            pdf_out = crea_pdf_fpdf(st.session_state.df_turni, anno, calendar.month_name[mese_idx])
+            st.download_button(label="Clicca qui per il PDF", data=pdf_out, file_name=f"Turni_{mese_idx}.pdf", mime="application/pdf")
     
     lista_errori = check_errors(st.session_state.df_turni, st.session_state.df_desid)
     if lista_errori:
@@ -195,7 +196,7 @@ with tab2:
     st.session_state.df_turni = st.data_editor(st.session_state.df_turni.fillna("").replace("None", ""), column_config=config_turni, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("📊 Riepilogo Ore e Bilancio Legale")
+    st.subheader("📊 Riepilogo Ore")
     df_v = st.session_state.df_turni.fillna("").replace("None", "")
     report = []
     for m in strutturati:
