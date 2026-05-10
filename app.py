@@ -28,7 +28,7 @@ def format_giorno(d, m, y):
     nome_giorno = ["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"][dt.weekday()]
     return f"{d}/{m} - {nome_giorno}"
 
-# --- FUNZIONE PDF CON COLORI ---
+# --- FUNZIONE PDF ---
 def crea_pdf_fpdf(df, anno, mese_idx, lista_festivi):
     pdf = FPDF(orientation="L", unit="mm", format="A4")
     pdf.add_page()
@@ -51,16 +51,14 @@ def crea_pdf_fpdf(df, anno, mese_idx, lista_festivi):
         pdf.set_fill_color(255, 255, 255)
         fill = False
         if dt in lista_festivi or dt.weekday() == 6:
-            pdf.set_fill_color(255, 200, 200) # Rosso
+            pdf.set_fill_color(255, 200, 200)
             fill = True
         elif dt.weekday() == 5:
-            pdf.set_fill_color(255, 255, 180) # Giallo
+            pdf.set_fill_color(255, 255, 180)
             fill = True
         pdf.cell(widths[0], 8, str(row['Giorno']), border=1, fill=fill)
-        pdf.cell(widths[1], 8, str(row['MeCAU 1']), border=1, fill=fill)
-        pdf.cell(widths[2], 8, str(row['MeCAU 2']), border=1, fill=fill)
-        pdf.cell(widths[3], 8, str(row['MeCAU Notte']), border=1, fill=fill)
-        pdf.cell(widths[4], 8, str(row['Bassa Intensità']), border=1, fill=fill)
+        for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Intensità"]:
+            pdf.cell(widths[cols.index(col)], 8, str(row[col]), border=1, fill=fill)
         pdf.ln()
     return pdf.output()
 
@@ -78,7 +76,7 @@ num_days = calendar.monthrange(anno, mese_idx)[1]
 festivi = get_festivi(anno)
 feriali_count = sum(1 for d in range(1, num_days + 1) if datetime(anno, mese_idx, d).weekday() < 5 and datetime(anno, mese_idx, d).date() not in festivi)
 target_ore = feriali_count * 7.6
-st.sidebar.metric("Target Orario Mensile", f"{target_ore:.1f}h")
+st.sidebar.metric("Target Orario", f"{target_ore:.1f}h")
 
 giorni_labels = [format_giorno(d, mese_idx, anno) for d in range(1, num_days + 1)]
 
@@ -92,35 +90,39 @@ def suggerisci_turni():
     df = st.session_state.df_turni.fillna("").copy()
     ds = st.session_state.df_desid.fillna("").copy()
     
-    # Ordiniamo i giorni per dare priorità a quelli con più buchi
-    for idx in range(len(df)):
-        # Priorità: Notte (più difficile da coprire), poi i due diurni
-        for col in ["MeCAU Notte", "MeCAU 1", "MeCAU 2"]:
-            if not str(df.at[idx, col]).strip():
-                # Cerchiamo chi ha meno ore fatte finora
-                medici_shuffled = sorted(strutturati, key=lambda m: (df == m).sum().sum())
+    # PULIZIA PREVENTIVA (tranne modifiche manuali se volute, ma qui resettiamo per la bozza)
+    for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]:
+        df[col] = ""
+
+    # LOGICA A "SPALMARE": Prima tutte le notti del mese, poi le sale
+    for col in ["MeCAU Notte", "MeCAU 1", "MeCAU 2"]:
+        # Mischiamo i giorni per non riempire sempre dall'1 al 31 in ordine
+        giorni_indici = list(range(len(df)))
+        # random.shuffle(giorni_indici) # Se vuoi casualità totale togli il commento
+        
+        for idx in giorni_indici:
+            # Chi ha meno ore lavorate al momento?
+            medici_ordinati = sorted(strutturati, key=lambda m: (df == m).sum().sum())
+            
+            for med in medici_ordinati:
+                pref = ds.at[df.at[idx, "Giorno"], med]
+                if pref in ["Ferie", "Corso", "Blocco"]: continue
+                if pref == "No Giorno" and col != "MeCAU Notte": continue
+                if pref == "No Notte" and col == "MeCAU Notte": continue
                 
-                for med in medici_shuffled:
-                    pref = ds.at[df.at[idx, "Giorno"], med]
-                    if pref in ["Ferie", "Corso", "Blocco"]: continue
-                    if pref == "No Giorno" and col != "MeCAU Notte": continue
-                    if pref == "No Notte" and col == "MeCAU Notte": continue
-                    
-                    # CONTROLLO ORE CON TOLLERANZA PER COPRIRE IL MESE
-                    ore_fatte = (df == med).sum().sum() * 12
-                    abb = ds[med].isin(["Ferie", "Corso"]).sum() * 7.6
-                    
-                    # Permettiamo uno sforamento massimo di 12h oltre il target 
-                    # per coprire i "buchi" di fine mese
-                    if (ore_fatte + abb) >= (target_ore + 12): continue
-                    
-                    # Vincoli legali standard
-                    if idx > 0 and str(df.at[idx-1, "MeCAU Notte"]) == med: continue
-                    start_7d = max(0, idx - 6)
-                    if ((df.iloc[start_7d:idx+1] == med).sum().sum() * 12) + 12 > 60: continue # Flessibilità a 60h settimanali eccezionali
-                    
-                    df.at[idx, col] = med
-                    break
+                ore_attuali = (df == med).sum().sum() * 12
+                abb = ds[med].isin(["Ferie", "Corso"]).sum() * 7.6
+                
+                # RIGIDISSIMO: Se il turno da 12h sfora il target, salta.
+                if (ore_attuali + abb + 12) > target_ore: continue
+                
+                # Riposo 11h (no turno se ha fatto notte il giorno prima)
+                if idx > 0 and str(df.at[idx-1, "MeCAU Notte"]) == med: continue
+                # No doppio turno nello stesso giorno
+                if med in [df.at[idx, "MeCAU 1"], df.at[idx, "MeCAU 2"], df.at[idx, "MeCAU Notte"]]: continue
+                
+                df.at[idx, col] = med
+                break
     st.session_state.df_turni = df
 
 tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo"])
@@ -132,7 +134,7 @@ with tab1:
 with tab2:
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🪄 Genera Turni Completi", type="primary"):
+        if st.button("🪄 Genera Turni (Spalmati nel mese)", type="primary"):
             suggerisci_turni()
             st.rerun()
     with c2:
