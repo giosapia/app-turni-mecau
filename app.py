@@ -28,7 +28,7 @@ def format_giorno(d, m, y):
     nome_giorno = ["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"][dt.weekday()]
     return f"{d}/{m} - {nome_giorno}"
 
-# --- FUNZIONE PDF PULITA (SOLO COLORI, NO LETTERE) ---
+# --- FUNZIONE PDF ---
 def crea_pdf_fpdf(df, anno, mese_idx, lista_festivi):
     pdf = FPDF(orientation="L", unit="mm", format="A4")
     pdf.add_page()
@@ -36,41 +36,33 @@ def crea_pdf_fpdf(df, anno, mese_idx, lista_festivi):
     mese_nome = calendar.month_name[mese_idx].upper()
     pdf.cell(0, 10, f"PROGRAMMAZIONE TURNI MECAU - {mese_nome} {anno}", ln=True, align="C")
     pdf.ln(5)
-    
     cols = ["Giorno", "MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Int."]
     widths = [40, 60, 60, 60, 55]
-    
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_fill_color(31, 78, 120)
     pdf.set_text_color(255, 255, 255)
     for i, col in enumerate(cols):
         pdf.cell(widths[i], 10, col, border=1, align="C", fill=True)
     pdf.ln()
-    
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(0, 0, 0)
-    
     for i, row in df.iterrows():
         d = i + 1
         dt = datetime(anno, mese_idx, d).date()
-        
-        # Logica Colore Cella
         pdf.set_fill_color(255, 255, 255)
         fill = False
         if dt in lista_festivi or dt.weekday() == 6:
-            pdf.set_fill_color(255, 200, 200) # Rosso per festivi/domeniche
+            pdf.set_fill_color(255, 200, 200)
             fill = True
         elif dt.weekday() == 5:
-            pdf.set_fill_color(255, 255, 180) # Giallo per sabati
+            pdf.set_fill_color(255, 255, 180)
             fill = True
-            
         pdf.cell(widths[0], 8, str(row['Giorno']), border=1, fill=fill)
         pdf.cell(widths[1], 8, str(row['MeCAU 1']), border=1, fill=fill)
         pdf.cell(widths[2], 8, str(row['MeCAU 2']), border=1, fill=fill)
         pdf.cell(widths[3], 8, str(row['MeCAU Notte']), border=1, fill=fill)
         pdf.cell(widths[4], 8, str(row['Bassa Intensità']), border=1, fill=fill)
         pdf.ln()
-        
     return pdf.output()
 
 # --- APP ---
@@ -87,7 +79,7 @@ num_days = calendar.monthrange(anno, mese_idx)[1]
 festivi = get_festivi(anno)
 feriali_count = sum(1 for d in range(1, num_days + 1) if datetime(anno, mese_idx, d).weekday() < 5 and datetime(anno, mese_idx, d).date() not in festivi)
 target_ore = feriali_count * 7.6
-st.sidebar.metric("Target Orario (Feriali)", f"{target_ore:.1f}h")
+st.sidebar.metric("Target Orario", f"{target_ore:.1f}h")
 
 giorni_labels = [format_giorno(d, mese_idx, anno) for d in range(1, num_days + 1)]
 
@@ -116,8 +108,12 @@ def suggerisci_turni():
     st.session_state.df_turni = df
 
 tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo"])
+
 with tab1:
-    st.session_state.df_desid = st.data_editor(st.session_state.df_desid, use_container_width=True)
+    # RIPRISTINO MENU A TENDINA DESIDERATA
+    config_des = {m: st.column_config.SelectboxColumn(m, options=["", "Ferie", "Corso", "Blocco"]) for m in strutturati}
+    st.session_state.df_desid = st.data_editor(st.session_state.df_desid, column_config=config_des, use_container_width=True)
+
 with tab2:
     c1, c2 = st.columns(2)
     with c1:
@@ -132,6 +128,7 @@ with tab2:
     lista_tutti = [""] + strutturati + jolly
     lista_bassa = [""] + gettonisti
     st.session_state.df_turni = st.data_editor(st.session_state.df_turni, column_config={
+        "Giorno": st.column_config.TextColumn("Giorno", disabled=True),
         "MeCAU 1": st.column_config.SelectboxColumn(options=lista_tutti),
         "MeCAU 2": st.column_config.SelectboxColumn(options=lista_tutti),
         "MeCAU Notte": st.column_config.SelectboxColumn(options=lista_tutti),
@@ -139,10 +136,11 @@ with tab2:
     }, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("📊 Bilancio Ore (Ogni ora lavorata conta)")
+    st.subheader("📊 Bilancio Ore")
     report = []
     for m in strutturati:
         ore_l = (st.session_state.df_turni.iloc[:, 1:] == m).sum().sum() * 12
         abb = st.session_state.df_desid[m].isin(["Ferie", "Corso", "Blocco"]).sum() * 7.6
-        report.append({"Medico": m, "Ore Lavorate": ore_l, "Abbuono": abb, "Target": round(target_ore, 1), "Differenza": round((ore_l + abb) - target_ore, 1)})
+        diff = round((ore_l + abb) - target_ore, 1)
+        report.append({"Medico": m, "Ore Lavorate": ore_l, "Abbuono": abb, "Target": round(target_ore, 1), "Differenza": diff})
     st.table(pd.DataFrame(report))
