@@ -5,7 +5,7 @@ import calendar
 import random
 from fpdf import FPDF
 
-# --- LOGICA CALENDARIO E FESTIVI ---
+# --- LOGICA CALENDARIO ---
 def get_festivi(year):
     festivi_fissi = [(1, 1), (1, 6), (4, 25), (5, 1), (6, 2), (8, 15), (11, 1), (12, 8), (12, 25), (12, 26)]
     lista_date = [datetime(year, m, g).date() for m, g in festivi_fissi]
@@ -27,13 +27,11 @@ def get_day_label(d, m, y, festivi):
     dt = datetime(y, m, d).date()
     nomi = ["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"]
     base = f"{d}/{m} - {nomi[dt.weekday()]}"
-    if dt in festivi or dt.weekday() == 6:
-        return f"🔴 {base}"
-    elif dt.weekday() == 5:
-        return f"🟡 {base}"
+    if dt in festivi or dt.weekday() == 6: return f"🔴 {base}"
+    elif dt.weekday() == 5: return f"🟡 {base}"
     return f"⚪ {base}"
 
-# --- PDF GENERATOR (FPDF2) ---
+# --- PDF GENERATOR ---
 def genera_pdf_sicuro(df, anno, mese_idx, festivi):
     pdf = FPDF(orientation="L", unit="mm", format="A4")
     pdf.add_page()
@@ -41,91 +39,73 @@ def genera_pdf_sicuro(df, anno, mese_idx, festivi):
     mese_nome = calendar.month_name[mese_idx].upper()
     pdf.cell(0, 10, f"PROGRAMMAZIONE TURNI MECAU - {mese_nome} {anno}", ln=True, align="C")
     pdf.ln(5)
-
     widths = [40, 60, 60, 60, 55]
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.set_fill_color(31, 78, 120)
-    pdf.set_text_color(255, 255, 255)
-    
+    pdf.set_font("Helvetica", "B", 11); pdf.set_fill_color(31, 78, 120); pdf.set_text_color(255, 255, 255)
     for h, w in zip(["Giorno", "MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Int."], widths):
         pdf.cell(w, 10, h, border=1, align="C", fill=True)
     pdf.ln()
-
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(0, 0, 0)
-
+    pdf.set_font("Helvetica", "", 10); pdf.set_text_color(0, 0, 0)
     for i, row in df.iterrows():
         dt = datetime(anno, mese_idx, i + 1).date()
         if dt in festivi or dt.weekday() == 6: pdf.set_fill_color(255, 220, 220)
         elif dt.weekday() == 5: pdf.set_fill_color(255, 250, 200)
         else: pdf.set_fill_color(255, 255, 255)
-        
-        # Le emoji nun vanno ner PDF standard, le pulimo
-        txt_pulito = row['Giorno'].replace("🔴 ", "").replace("🟡 ", "").replace("⚪ ", "")
-        
-        pdf.cell(widths[0], 9, txt_pulito, border=1, fill=True)
-        pdf.cell(widths[1], 9, str(row['MeCAU 1']), border=1, align="C", fill=True)
-        pdf.cell(widths[2], 9, str(row['MeCAU 2']), border=1, align="C", fill=True)
-        pdf.cell(widths[3], 9, str(row['MeCAU Notte']), border=1, align="C", fill=True)
-        pdf.cell(widths[4], 9, str(row['Bassa Intensità']), border=1, align="C", fill=True)
+        txt = row['Giorno'].replace("🔴 ", "").replace("🟡 ", "").replace("⚪ ", "")
+        pdf.cell(widths[0], 9, txt, border=1, fill=True)
+        for j in range(1, 5):
+            pdf.cell(widths[j], 9, str(row.iloc[j]), border=1, align="C", fill=True)
         pdf.ln()
     return pdf.output()
 
-# --- APP ---
+# --- STREAMLIT APP ---
 st.set_page_config(page_title="MeCAU Scheduler", layout="wide")
 st.title("🏥 Gestore Turni MeCAU")
 
 anno = st.sidebar.number_input("Anno", value=2026)
 mese_idx = st.sidebar.selectbox("Mese", range(1, 13), index=datetime.now().month - 1)
-medici_input = st.sidebar.text_area("Medici", "Brancaleoni, Desiderio, Pazè, Sapia")
-strutturati = [x.strip() for x in medici_input.split(",") if x.strip()]
+strutturati = [x.strip() for x in st.sidebar.text_area("Medici", "Brancaleoni, Desiderio, Pazè, Sapia").split(",") if x.strip()]
 
 num_days = calendar.monthrange(anno, mese_idx)[1]
 festivi_list = get_festivi(anno)
-feriali = sum(1 for d in range(1, num_days + 1) if datetime(anno, mese_idx, d).weekday() < 5 and datetime(anno, mese_idx, d).date() not in festivi_list)
-target_h = feriali * 7.6
-st.sidebar.metric("Target Ore", f"{target_h:.1f}h")
+target_h = sum(1 for d in range(1, num_days + 1) if datetime(anno, mese_idx, d).weekday() < 5 and datetime(anno, mese_idx, d).date() not in festivi_list) * 7.6
 
-if 'prev_key' not in st.session_state or st.session_state.prev_key != f"{anno}-{mese_idx}":
+if 'key' not in st.session_state or st.session_state.key != f"{anno}-{mese_idx}":
     labels = [get_day_label(d, mese_idx, anno, festivi_list) for d in range(1, num_days + 1)]
     st.session_state.df_turni = pd.DataFrame("", index=range(num_days), columns=["Giorno", "MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Intensità"])
     st.session_state.df_turni["Giorno"] = labels
     st.session_state.df_desid = pd.DataFrame("", index=labels, columns=strutturati)
-    st.session_state.prev_key = f"{anno}-{mese_idx}"
+    st.session_state.key = f"{anno}-{mese_idx}"
 
-def genera():
-    df = st.session_state.df_turni.copy()
-    ds = st.session_state.df_desid.copy()
-    for c in ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]: df[c] = ""
-    for col in ["MeCAU Notte", "MeCAU 1", "MeCAU 2"]:
-        for idx in range(num_days):
-            cand = sorted(strutturati, key=lambda m: (df == m).sum().sum())
-            for m in cand:
-                pref = ds.at[df.at[idx, "Giorno"], m]
-                if pref in ["Ferie", "Corso", "Blocco"]: continue
-                ore = (df == m).sum().sum() * 12
-                abb = ds[m].isin(["Ferie", "Corso"]).sum() * 7.6
-                if (ore + abb + 12) > (target_h + 4): continue
-                if idx > 0 and df.at[idx-1, "MeCAU Notte"] == m: continue
-                if m in [df.at[idx, "MeCAU 1"], df.at[idx, "MeCAU 2"], df.at[idx, "MeCAU Notte"]]: continue
-                df.at[idx, col] = m
-                break
-    st.session_state.df_turni = df
-
-t1, t2, t3 = st.tabs(["📅 Desiderata", "🛠️ Griglia", "📊 Bilancio"])
+t1, t2, t3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Bilancio"])
 
 with t1:
-    st.caption("🔴 Festivo | 🟡 Sabato | ⚪ Feriale")
-    st.session_state.df_desid = st.data_editor(st.session_state.df_desid, use_container_width=True)
+    st.info("🔴 Festivo | 🟡 Sabato | ⚪ Feriale")
+    # CONFIGURAZIONE COLONNE PER RIABILITARE LA LISTA DESIDERATA
+    config_des = {m: st.column_config.SelectboxColumn(m, options=["", "Ferie", "Corso", "Blocco", "No Giorno", "No Notte"]) for m in strutturati}
+    st.session_state.df_desid = st.data_editor(st.session_state.df_desid, column_config=config_des, use_container_width=True)
 
 with t2:
-    col_a, col_b = st.columns(2)
-    if col_a.button("🪄 Genera", type="primary"): genera(); st.rerun()
-    if col_b.button("📥 Scarica PDF"):
-        pdf = genera_pdf_sicuro(st.session_state.df_turni, anno, mese_idx, festivi_list)
-        st.download_button("Download PDF", pdf, f"Turni_{mese_idx}.pdf", "application/pdf")
+    c1, c2 = st.columns(2)
+    if c1.button("🪄 Genera", type="primary"):
+        df, ds = st.session_state.df_turni.copy(), st.session_state.df_desid.copy()
+        for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]:
+            for idx in range(num_days):
+                medici = sorted(strutturati, key=lambda m: (df == m).sum().sum())
+                for m in medici:
+                    pref = ds.at[df.at[idx, "Giorno"], m]
+                    if pref in ["Ferie", "Corso", "Blocco"]: continue
+                    if (pref == "No Giorno" and col != "MeCAU Notte") or (pref == "No Notte" and col == "MeCAU Notte"): continue
+                    if ( (df == m).sum().sum()*12 + ds[m].isin(["Ferie","Corso"]).sum()*7.6 ) > (target_h + 4): continue
+                    if idx > 0 and df.at[idx-1, "MeCAU Notte"] == m: continue
+                    if m in [df.at[idx, "MeCAU 1"], df.at[idx, "MeCAU 2"], df.at[idx, "MeCAU Notte"]]: continue
+                    df.at[idx, col] = m; break
+        st.session_state.df_turni = df
+        st.rerun()
+    if c2.button("📥 Scarica PDF"):
+        st.download_button("Download PDF", genera_pdf_sicuro(st.session_state.df_turni, anno, mese_idx, festivi_list), f"Turni_{mese_idx}.pdf", "application/pdf")
+    
     st.session_state.df_turni = st.data_editor(st.session_state.df_turni, use_container_width=True, hide_index=True)
 
 with t3:
-    res = [{"Medico": m, "Tot": (st.session_state.df_turni == m).sum().sum() * 12 + st.session_state.df_desid[m].isin(["Ferie", "Corso"]).sum() * 7.6} for m in strutturati]
+    res = [{"Medico": m, "Ore": (st.session_state.df_turni == m).sum().sum()*12, "Diff": round(((st.session_state.df_turni == m).sum().sum()*12 + st.session_state.df_desid[m].isin(["Ferie","Corso"]).sum()*7.6) - target_h, 1)} for m in strutturati]
     st.table(pd.DataFrame(res))
