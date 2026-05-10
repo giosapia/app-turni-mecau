@@ -47,20 +47,24 @@ st.sidebar.info(f"**Monte Ore Target:** {feriali_count * 7.6:.1f}h")
 tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo"])
 
 with tab1:
-    st.subheader("Inserimento Ferie, Corsi e Blocchi")
-    st.markdown("Seleziona il tipo di assenza per ogni giorno. *Le Ferie e i Corsi scalano 7.6h dal monte ore.*")
+    st.subheader("Inserimento Vincoli e Assenze")
+    st.markdown("""
+    * **Ferie/Corso:** Scalano 7.6h e bloccano l'intera giornata.
+    * **Blocco:** Indisponibilità totale (non scala ore).
+    * **No Giorno:** Esclude MeCAU 1, 2 e Bassa Intensità.
+    * **No Notte:** Esclude MeCAU Notte.
+    """)
     
-    # Opzioni per i desiderata
-    opzioni_desiderata = ["", "Ferie", "Corso", "Blocco (Indisponibile)"]
+    # Opzioni aggiornate
+    opzioni_desiderata = ["", "Ferie", "Corso", "Blocco", "No Giorno", "No Notte"]
     
     giorni = [f"{d}/{mese_idx}" for d in range(1, num_days + 1)]
-    
-    # Creiamo una tabella dove le colonne sono i Medici Strutturati
     df_desiderata = pd.DataFrame(index=giorni, columns=strutturati).fillna("")
     
     config_desid = {medico: st.column_config.SelectboxColumn(medico, options=opzioni_desiderata) for medico in strutturati}
     
-    st.data_editor(df_desiderata, column_config=config_desid, use_container_width=True)
+    # Salviamo i desiderata nello stato della sessione per non perderli al cambio tab
+    desid_stati = st.data_editor(df_desiderata, column_config=config_desid, use_container_width=True, key="editor_desiderata")
 
 with tab2:
     st.subheader("Compilazione Turni MeCAU")
@@ -80,10 +84,10 @@ with tab2:
         "Bassa Intensità": st.column_config.SelectboxColumn("Bassa Intensità", options=lista_bassa_int),
     }
     
-    st.data_editor(df_base, column_config=config_turni, use_container_width=True, hide_index=True)
+    st.data_editor(df_base, column_config=config_turni, use_container_width=True, hide_index=True, key="editor_turni")
 
 with tab3:
     st.subheader("Riepilogo Ore")
-    st.info("I calcoli verranno visualizzati qui una volta completata la logica di conteggio.")
+    st.write("Configurazione completata. Nel prossimo step attiveremo i calcoli automatici.")
 
-st.success("Tab 'Desiderata' attivata con menu a tendina!")
+st.success("Opzioni 'No Giorno' e 'No Notte' aggiunte!")
