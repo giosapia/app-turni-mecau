@@ -53,7 +53,8 @@ def genera_pdf_sicuro(df, anno, mese_idx, festivi):
         txt = row['Giorno'].replace("🔴 ", "").replace("🟡 ", "").replace("⚪ ", "")
         pdf.cell(widths[0], 9, txt, border=1, fill=True)
         for j in range(1, 5):
-            pdf.cell(widths[j], 9, str(row.iloc[j]), border=1, align="C", fill=True)
+            val = str(row.iloc[j]) if row.iloc[j] else ""
+            pdf.cell(widths[j], 9, val, border=1, align="C", fill=True)
         pdf.ln()
     return pdf.output()
 
@@ -80,32 +81,55 @@ t1, t2, t3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Bilancio
 
 with t1:
     st.info("🔴 Festivo | 🟡 Sabato | ⚪ Feriale")
-    # CONFIGURAZIONE COLONNE PER RIABILITARE LA LISTA DESIDERATA
     config_des = {m: st.column_config.SelectboxColumn(m, options=["", "Ferie", "Corso", "Blocco", "No Giorno", "No Notte"]) for m in strutturati}
     st.session_state.df_desid = st.data_editor(st.session_state.df_desid, column_config=config_des, use_container_width=True)
 
 with t2:
     c1, c2 = st.columns(2)
-    if c1.button("🪄 Genera", type="primary"):
-        df, ds = st.session_state.df_turni.copy(), st.session_state.df_desid.copy()
-        for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]:
+    if c1.button("🪄 Genera Bozza Bilanciata", type="primary"):
+        df = st.session_state.df_turni.copy()
+        ds = st.session_state.df_desid.copy()
+        # Svuota griglia
+        for c in ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]: df[c] = ""
+        
+        # 1. ASSEGNAZIONE NOTTI (Priorità assoluta)
+        for idx in range(num_days):
+            random.shuffle(strutturati)
+            medici_ordinati = sorted(strutturati, key=lambda m: (df == m).sum().sum())
+            for m in medici_ordinati:
+                pref = ds.at[df.at[idx, "Giorno"], m]
+                if pref in ["Ferie", "Corso", "Blocco", "No Notte"]: continue
+                if idx > 0 and df.at[idx-1, "MeCAU Notte"] == m: continue # No due notti di fila
+                
+                df.at[idx, "MeCAU Notte"] = m
+                break
+
+        # 2. ASSEGNAZIONE TURNI GIORNO (MeCAU 1 e 2)
+        for col in ["MeCAU 1", "MeCAU 2"]:
             for idx in range(num_days):
-                medici = sorted(strutturati, key=lambda m: (df == m).sum().sum())
-                for m in medici:
+                medici_ordinati = sorted(strutturati, key=lambda m: (df == m).sum().sum())
+                for m in medici_ordinati:
                     pref = ds.at[df.at[idx, "Giorno"], m]
-                    if pref in ["Ferie", "Corso", "Blocco"]: continue
-                    if (pref == "No Giorno" and col != "MeCAU Notte") or (pref == "No Notte" and col == "MeCAU Notte"): continue
-                    if ( (df == m).sum().sum()*12 + ds[m].isin(["Ferie","Corso"]).sum()*7.6 ) > (target_h + 4): continue
-                    if idx > 0 and df.at[idx-1, "MeCAU Notte"] == m: continue
-                    if m in [df.at[idx, "MeCAU 1"], df.at[idx, "MeCAU 2"], df.at[idx, "MeCAU Notte"]]: continue
-                    df.at[idx, col] = m; break
+                    if pref in ["Ferie", "Corso", "Blocco", "No Giorno"]: continue
+                    if df.at[idx, "MeCAU Notte"] == m: continue # Non può fare giorno e notte insieme
+                    if idx > 0 and df.at[idx-1, "MeCAU Notte"] == m: continue # Riposo post-notte
+                    if m in [df.at[idx, "MeCAU 1"], df.at[idx, "MeCAU 2"]]: continue # Già assegnato in questo giorno
+                    
+                    df.at[idx, col] = m
+                    break
+        
         st.session_state.df_turni = df
         st.rerun()
+
     if c2.button("📥 Scarica PDF"):
         st.download_button("Download PDF", genera_pdf_sicuro(st.session_state.df_turni, anno, mese_idx, festivi_list), f"Turni_{mese_idx}.pdf", "application/pdf")
     
     st.session_state.df_turni = st.data_editor(st.session_state.df_turni, use_container_width=True, hide_index=True)
 
 with t3:
-    res = [{"Medico": m, "Ore": (st.session_state.df_turni == m).sum().sum()*12, "Diff": round(((st.session_state.df_turni == m).sum().sum()*12 + st.session_state.df_desid[m].isin(["Ferie","Corso"]).sum()*7.6) - target_h, 1)} for m in strutturati]
+    res = []
+    for m in strutturati:
+        lavorate = (st.session_state.df_turni == m).sum().sum()*12
+        abbuono = st.session_state.df_desid[m].isin(["Ferie","Corso"]).sum()*7.6
+        res.append({"Medico": m, "Ore Lavorate": lavorate, "Abbuono": abbuono, "Totale": lavorate+abbuono, "Diff": round(lavorate+abbuono - target_h, 1)})
     st.table(pd.DataFrame(res))
