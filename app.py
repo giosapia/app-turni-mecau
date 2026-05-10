@@ -171,5 +171,15 @@ with tab3:
     for m in strutturati:
         ore_lav = (df_v.iloc[:, 1:] == m).sum().sum() * 12
         assente = st.session_state.df_desid[m].isin(["Ferie", "Corso"]).sum() if m in st.session_state.df_desid.columns else 0
-        report.append({"Medico": m, "Ore Lav.": ore_lav, "Abbuono (h)": ore_abb := assente * 7.6, "Bilancio": round((ore_lav + ore_abb) - target_ore, 1)})
+        
+        # Calcolo separato per evitare errori di sintassi
+        ore_abb = assente * 7.6
+        bilancio = round((ore_lav + ore_abb) - target_ore, 1)
+        
+        report.append({
+            "Medico": m, 
+            "Ore Lav.": ore_lav, 
+            "Abbuono (h)": ore_abb, 
+            "Bilancio": bilancio
+        })
     st.table(pd.DataFrame(report))
