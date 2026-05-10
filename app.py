@@ -2,12 +2,12 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import calendar
+import random
 
 # --- LOGICA CALENDARIO E FESTIVI ---
 def get_festivi(year):
     festivi_fissi = [(1, 1), (1, 6), (4, 25), (5, 1), (6, 2), (8, 15), (11, 1), (12, 8), (12, 25), (12, 26)]
     lista_date = [datetime(year, m, g).date() for m, g in festivi_fissi]
-    # Pasqua e Pasquetta
     a, b, c = year % 19, year // 100, year % 100
     d, e = b // 4, b % 4
     f = (b + 8) // 25
@@ -20,7 +20,6 @@ def get_festivi(year):
     giorno_p = ((h + l - 7 * m_gauss + 114) % 31) + 1
     pasqua = datetime(year, mese_p, giorno_p).date()
     lista_date.extend([pasqua, pasqua + timedelta(days=1)])
-    # Patrono
     c_cal = calendar.Calendar(firstweekday=calendar.MONDAY)
     month_july = c_cal.monthdatescalendar(year, 7)
     sundays = [day for week in month_july for day in week if day.weekday() == 6 and day.month == 7]
@@ -65,35 +64,58 @@ if 'df_turni' not in st.session_state or st.session_state.get('prev_mese') != me
     st.session_state.df_desid = pd.DataFrame(index=giorni_labels, columns=strutturati).fillna("")
     st.session_state.prev_mese = mese_idx
 
-# --- LOGICA ERRORI (VIGILE AGGIORNATO) ---
-def check_errors():
+# --- LOGICA ERRORI ---
+def check_errors(df_in, ds_in):
     errs = []
-    df = st.session_state.df_turni
-    ds = st.session_state.df_desid
-    
-    for idx, row in df.iterrows():
+    for idx, row in df_in.iterrows():
         g = row["Giorno"]
-        # 1. Doppi turni stesso giorno
         attivi = [m for m in [row["MeCAU 1"], row["MeCAU 2"], row["MeCAU Notte"], row["Bassa Intensità"]] if m != ""]
         if len(attivi) != len(set(attivi)):
             for d in set([m for m in attivi if attivi.count(m) > 1]):
-                errs.append(f"🔴 **{g}**: {d} ha turni duplicati nello stesso giorno.")
-        
-        # 2. Riposo Post-Notte (Guarda il giorno precedente)
+                errs.append(f"🔴 **{g}**: {d} ha duplicati.")
         if idx > 0:
-            ieri_notte = df.iloc[idx-1]["MeCAU Notte"]
+            ieri_notte = df_in.iloc[idx-1]["MeCAU Notte"]
             if ieri_notte != "" and ieri_notte in attivi:
-                errs.append(f"😴 **{g}**: {ieri_notte} non può lavorare (ha fatto la notte ieri).")
-
-        # 3. Vincoli Desiderata
+                errs.append(f"😴 **{g}**: {ieri_notte} post-notte.")
         for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Intensità"]:
             m = row[col]
             if m in strutturati:
-                v = ds.at[g, m]
-                if v in ["Ferie", "Corso", "Blocco"]: errs.append(f"❌ **{g}**: {m} è in '{v}'.")
-                elif v == "No Giorno" and col != "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} ha 'No Giorno'.")
-                elif v == "No Notte" and col == "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} ha 'No Notte'.")
+                v = ds_in.at[g, m]
+                if v in ["Ferie", "Corso", "Blocco"]: errs.append(f"❌ **{g}**: {m} in {v}.")
+                elif v == "No Giorno" and col != "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} No Giorno.")
+                elif v == "No Notte" and col == "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} No Notte.")
     return errs
+
+# --- FUNZIONE DI SUGGERIMENTO ---
+def suggerisci_turni():
+    df = st.session_state.df_turni.copy()
+    ds = st.session_state.df_desid
+    
+    # Reset per sicurezza se vuoi una bozza pulita (opzionale)
+    # df.iloc[:, 1:] = "" 
+
+    # Ordine colonne per priorità diurna come richiesto
+    colonne_ordine = ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]
+    
+    for idx, row in df.iterrows():
+        giorno = row["Giorno"]
+        for col in colonne_ordine:
+            if df.at[idx, col] == "": # Se la cella è vuota
+                # Prova a metterci uno strutturato che deve ancora fare ore
+                random.shuffle(strutturati) # Mischia per equità
+                for med in strutturati:
+                    # Calcolo ore attuali
+                    ore_fatte = (df == med).sum().sum() * 12
+                    abbuono = ds[med].isin(["Ferie", "Corso"]).sum() * 7.6
+                    if (ore_fatte + abbuono) < target_ore:
+                        # Verifica se può lavorare (no doppi, no post-notte, no desiderata)
+                        df.at[idx, col] = med
+                        if check_errors(df, ds): # Se crea errore, annulla
+                            df.at[idx, col] = ""
+                        else:
+                            break # Trovato, passa alla prossima colonna
+    
+    st.session_state.df_turni = df
 
 # --- INTERFACCIA ---
 tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo"])
@@ -103,10 +125,16 @@ with tab1:
     st.session_state.df_desid = st.data_editor(st.session_state.df_desid, column_config=config_des, use_container_width=True)
 
 with tab2:
-    lista_errori = check_errors()
+    col_btn, col_err = st.columns([1, 3])
+    with col_btn:
+        if st.button("🪄 Suggerisci Turni (Bozza)"):
+            suggerisci_turni()
+            st.rerun()
+    
+    lista_errori = check_errors(st.session_state.df_turni, st.session_state.df_desid)
     if lista_errori:
-        with st.expander(f"⚠️ {len(lista_errori)} conflitti rilevati!", expanded=True):
-            for e in lista_errori[:5]: st.write(e)
+        with st.expander(f"⚠️ {len(lista_errori)} conflitti", expanded=False):
+            for e in lista_errori[:10]: st.write(e)
     
     config_turni = {
         "Giorno": st.column_config.TextColumn("Giorno", disabled=True),
@@ -127,6 +155,3 @@ with tab3:
         tot = ore_lav + ore_abb
         report.append({"Medico": m, "Ore Lav.": ore_lav, "Abbuono (h)": ore_abb, "Totale": round(tot,1), "Bilancio (PA)": round(tot - target_ore,1)})
     st.table(pd.DataFrame(report))
-    if lista_errori:
-        st.subheader("⚠️ Dettaglio Errori")
-        for e in lista_errori: st.write(e)
