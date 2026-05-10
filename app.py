@@ -13,64 +13,76 @@ def get_festivi(year):
     patrono = terza_dom_luglio + timedelta(days=1)
     lista = [patrono]
     for m, g in festivi_fissi:
-        try: lista.append(datetime(year, m, g).date())
+        try:
+            lista.append(datetime(year, m, g).date())
         except: pass
     return lista
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Gestore Turni MeCAU", layout="wide")
-st.title("🏥 Gestore Turni MeCAU")
 
-# --- SIDEBAR: GESTIONE ---
-st.sidebar.header("⚙️ Configurazione")
+st.title("🏥 Gestore Turni MeCAU")
+st.markdown("---")
+
+# --- SIDEBAR: CONFIGURAZIONE ---
+st.sidebar.header("⚙️ Configurazione Mese")
 anno = st.sidebar.number_input("Anno", value=2026)
 mese_idx = st.sidebar.selectbox("Mese", range(1, 13), index=4)
 
-st.sidebar.header("👥 Personale")
-strutturati_txt = st.sidebar.text_area("Strutturati (separati da virgola)", "Brancaleoni, Desiderio, Pazè, Sapia")
-jolly_txt = st.sidebar.text_area("Jolly (separati da virgola)", "Maurino, Leoncini, Trupja, Tatarciuc")
-gettonisti_txt = st.sidebar.text_area("Gettonisti (separati da virgola)", "Moshkina, Mascalchi, Garrone")
+# --- NUOVA SEZIONE: GESTIONE MEDICI ---
+st.sidebar.header("👥 Gestione Personale")
+strutturati_txt = st.sidebar.text_area("Medici Strutturati (separati da virgola)", "Brancaleoni, Desiderio, Pazè, Sapia")
+jolly_txt = st.sidebar.text_area("Medici Jolly (separati da virgola)", "Maurino, Leoncini, Trupja, Tatarciuc")
+gettonisti_txt = st.sidebar.text_area("Medici Gettonisti (separati da virgola)", "Moshkina, Mascalchi, Garrone")
 
+# Trasformazione testo in liste pulite
 strutturati = [x.strip() for x in strutturati_txt.split(",") if x.strip()]
 jolly = [x.strip() for x in jolly_txt.split(",") if x.strip()]
 gettonisti = [x.strip() for x in gettonisti_txt.split(",") if x.strip()]
 
-# Liste per i menu a tendina
-lista_completa = [""] + strutturati + jolly
-lista_bassa_int = [""] + strutturati + jolly + gettonisti
-
-# --- CALCOLI TEMPO ---
+# Calcolo parametri mensili
 num_days = calendar.monthrange(anno, mese_idx)[1]
 festivi = get_festivi(anno)
-feriali_count = sum(1 for d in range(1, num_days + 1) if datetime(anno, mese_idx, d).weekday() < 5 and datetime(anno, mese_idx, d).date() not in festivi)
-st.sidebar.info(f"**Monte Ore Target:** {feriali_count * 7.6:.1f}h")
+feriali_count = 0
+for d in range(1, num_days + 1):
+    data_corr = datetime(anno, mese_idx, d).date()
+    if data_corr.weekday() < 5 and data_corr not in festivi:
+        feriali_count += 1
+monte_ore_target = feriali_count * 7.6
 
-# --- INTERFACCIA ---
-tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo"])
+st.sidebar.markdown("---")
+st.sidebar.info(f"**Monte Ore Mensile:** {monte_ore_target:.1f}h\n\n(Su {feriali_count} feriali)")
+
+# --- INTERFACCIA PRINCIPALE ---
+tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo Ore"])
+
+with tab1:
+    st.subheader("Inserimento Desiderata (Strutturati)")
+    if strutturati:
+        medico_sel = st.selectbox("Seleziona Medico", strutturati)
+        st.info(f"Configura Ferie, Corsi e Blocchi per **{medico_sel}**")
+    else:
+        st.warning("Inserisci almeno un medico strutturato nella barra laterale.")
 
 with tab2:
-    st.subheader("Compilazione Turni")
+    st.subheader("Griglia Turni")
     giorni = [f"{d}/{mese_idx}" for d in range(1, num_days + 1)]
+    # Liste per i menu a tendina nella tabella
+    tutti_medici = [""] + strutturati + jolly
+    gettonisti_list = [""] + gettonisti
     
-    # Creiamo il DataFrame base
-    df_base = pd.DataFrame({
+    df = pd.DataFrame({
         "Giorno": giorni,
-        "MeCAU 1": ["" for _ in giorni],
-        "MeCAU 2": ["" for _ in giorni],
-        "MeCAU Notte": ["" for _ in giorni],
-        "Bassa Intensità": ["" for _ in giorni]
+        "MeCAU 1 (8-20)": ["" for _ in giorni],
+        "MeCAU 2 (8-20)": ["" for _ in giorni],
+        "MeCAU Notte (20-8)": ["" for _ in giorni],
+        "Bassa Intensità (8-20)": ["" for _ in giorni]
     })
     
-    # CONFIGURAZIONE COLONNE CON TENDINE
-    config_colonne = {
-        "Giorno": st.column_config.TextColumn("Giorno", disabled=True),
-        "MeCAU 1": st.column_config.SelectboxColumn("MeCAU 1", options=lista_completa),
-        "MeCAU 2": st.column_config.SelectboxColumn("MeCAU 2", options=lista_completa),
-        "MeCAU Notte": st.column_config.SelectboxColumn("MeCAU Notte", options=lista_completa),
-        "Bassa Intensità": st.column_config.SelectboxColumn("Bassa Intensità", options=lista_bassa_int),
-    }
-    
-    # Visualizzazione Editor
-    st.data_editor(df_base, column_config=config_colonne, use_container_width=True, hide_index=True)
+    st.data_editor(df, use_container_width=True, num_rows="fixed")
 
-st.success("Codice aggiornato! Ora i menu a tendina sono attivi.")
+with tab3:
+    st.subheader("Bilancio Monte Ore")
+    st.write("Qui vedrai il calcolo automatico per ogni strutturato.")
+
+st.success("Codice aggiornato con gestione medici! Salva il file app.py.")
