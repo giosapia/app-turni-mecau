@@ -36,32 +36,38 @@ def crea_pdf_fpdf(df, anno, mese_idx, lista_festivi):
     mese_nome = calendar.month_name[mese_idx].upper()
     pdf.cell(0, 10, f"PROGRAMMAZIONE TURNI MECAU - {mese_nome} {anno}", ln=True, align="C")
     pdf.ln(5)
+    
     cols = ["Giorno", "MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Int."]
     widths = [40, 60, 60, 60, 55]
+    
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_fill_color(31, 78, 120)
     pdf.set_text_color(255, 255, 255)
     for i, col in enumerate(cols):
         pdf.cell(widths[i], 10, col, border=1, align="C", fill=True)
     pdf.ln()
+    
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(0, 0, 0)
+    
     for i, row in df.iterrows():
         dt = datetime(anno, mese_idx, i + 1).date()
         pdf.set_fill_color(255, 255, 255)
         fill = False
         if dt in lista_festivi or dt.weekday() == 6:
-            pdf.set_fill_color(255, 200, 200)
+            pdf.set_fill_color(255, 200, 200) # Rosso tenue
             fill = True
         elif dt.weekday() == 5:
-            pdf.set_fill_color(255, 255, 180)
+            pdf.set_fill_color(255, 255, 180) # Giallo tenue
             fill = True
+            
         pdf.cell(widths[0], 8, str(row['Giorno']), border=1, fill=fill)
         pdf.cell(widths[1], 8, str(row['MeCAU 1']), border=1, fill=fill)
         pdf.cell(widths[2], 8, str(row['MeCAU 2']), border=1, fill=fill)
         pdf.cell(widths[3], 8, str(row['MeCAU Notte']), border=1, fill=fill)
         pdf.cell(widths[4], 8, str(row['Bassa Intensità']), border=1, fill=fill)
         pdf.ln()
+        
     return pdf.output()
 
 # --- APP ---
@@ -78,7 +84,7 @@ num_days = calendar.monthrange(anno, mese_idx)[1]
 festivi = get_festivi(anno)
 feriali_count = sum(1 for d in range(1, num_days + 1) if datetime(anno, mese_idx, d).weekday() < 5 and datetime(anno, mese_idx, d).date() not in festivi)
 target_ore = feriali_count * 7.6
-st.sidebar.metric("Target Orario", f"{target_ore:.1f}h")
+st.sidebar.metric("Target Orario Mensile", f"{target_ore:.1f}h")
 
 giorni_labels = [format_giorno(d, mese_idx, anno) for d in range(1, num_days + 1)]
 
@@ -97,13 +103,11 @@ def suggerisci_turni():
                 medici_shuffled = sorted(strutturati, key=lambda m: (df["MeCAU Notte"] == m).sum()) if col == "MeCAU Notte" else random.sample(strutturati, len(strutturati))
                 for med in medici_shuffled:
                     pref = ds.at[df.at[idx, "Giorno"], med]
-                    # Vincolo Blocco (No turno, No abbuono)
                     if pref in ["Ferie", "Corso", "Blocco"]: continue
                     if pref == "No Giorno" and col != "MeCAU Notte": continue
                     if pref == "No Notte" and col == "MeCAU Notte": continue
                     
                     ore_tot = (df == med).sum().sum() * 12
-                    # Abbuono solo per Ferie e Corso
                     abb = ds[med].isin(["Ferie", "Corso"]).sum() * 7.6
                     
                     if (ore_tot + abb + 12) > target_ore: continue
@@ -123,11 +127,11 @@ with tab1:
 with tab2:
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("Genera Bozza (Contrattuale)", type="primary"):
+        if st.button("🪄 Genera Bozza (Rigido)", type="primary"):
             suggerisci_turni()
             st.rerun()
     with c2:
-        if st.button("Scarica PDF"):
+        if st.button("📥 Scarica PDF"):
             pdf_data = crea_pdf_fpdf(st.session_state.df_turni, anno, mese_idx, festivi)
             st.download_button("Salva PDF", pdf_data, f"Turni_{mese_idx}.pdf", "application/pdf")
     
@@ -142,12 +146,11 @@ with tab2:
     }, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("📊 Bilancio Ore")
+    st.subheader("📊 Bilancio Ore Finale")
     report = []
     for m in strutturati:
         ore_l = (st.session_state.df_turni.iloc[:, 1:] == m).sum().sum() * 12
-        # Calcolo abbuono escludendo "Blocco"
         abb = st.session_state.df_desid[m].isin(["Ferie", "Corso"]).sum() * 7.6
         diff = round((ore_l + abb) - target_ore, 1)
-        report.append({"Medico": m, "Ore Lavorate": ore_l, "Abbuono": abb, "Target": round(target_ore, 1), "Differenza": diff})
+        report.append({"Medico": m, "Ore Lavorate": ore_l, "Abbuono (Ferie/Corso)": abb, "Target": round(target_ore, 1), "Differenza": diff})
     st.table(pd.DataFrame(report))
