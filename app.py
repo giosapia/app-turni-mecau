@@ -59,7 +59,6 @@ st.sidebar.metric("Monte Ore Target", f"{target_ore:.1f}h")
 
 giorni_labels = [format_giorno(d, mese_idx, anno, festivi) for d in range(1, num_days + 1)]
 
-# Inizializzazione Session State
 if 'df_turni' not in st.session_state or st.session_state.get('prev_mese') != mese_idx or st.session_state.get('prev_anno') != anno:
     st.session_state.df_turni = pd.DataFrame("", index=range(num_days), columns=["Giorno", "MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Intensità"])
     st.session_state.df_turni["Giorno"] = giorni_labels
@@ -67,7 +66,7 @@ if 'df_turni' not in st.session_state or st.session_state.get('prev_mese') != me
     st.session_state.prev_mese = mese_idx
     st.session_state.prev_anno = anno
 
-# --- LOGICA ERRORI (Il Vigile) ---
+# --- LOGICA ERRORI ---
 def check_errors(df_in, ds_in):
     errs = []
     df_c = df_in.fillna("").replace("None", "")
@@ -82,9 +81,10 @@ def check_errors(df_in, ds_in):
             if ieri_notte.strip() and ieri_notte in attivi: errs.append(f"😴 **{g}**: {ieri_notte} post-notte.")
         
         if idx > 2:
-            for m in attivi:
+            for m in strutturati:
                 if any(df_c.iloc[idx-1, 1:] == m) and any(df_c.iloc[idx-2, 1:] == m) and any(df_c.iloc[idx-3, 1:] == m):
-                    errs.append(f"⚠️ **{g}**: {m} ha superato i 3 turni consecutivi.")
+                    if any(df_c.iloc[idx, 1:] == m):
+                        errs.append(f"⚠️ **{g}**: {m} > 3 turni consecutivi.")
 
         for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Intensità"]:
             m = str(row[col])
@@ -95,23 +95,25 @@ def check_errors(df_in, ds_in):
                 elif v == "No Notte" and col == "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} No Notte.")
     return errs
 
-# --- ALGORITMO SUGGERIMENTO (Copertura Mensile) ---
+# --- ALGORITMO SUGGERIMENTO (Flessibile sulle sale) ---
 def suggerisci_turni():
     df = st.session_state.df_turni.fillna("").replace("None", "").copy()
     ds = st.session_state.df_desid.fillna("").replace("None", "").copy()
     
-    # Scansiona ogni giorno del mese
     for idx in range(len(df)):
-        # Prova a riempire MeCAU 1, poi MeCAU 2, poi Notte
+        # Sostituiamo il salto totale con un salto per singola cella per permettere una sola sala coperta
         for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]:
+            if random.random() < 0.25: # 25% di probabilità di lasciare il singolo slot vuoto volutamente
+                continue
+                
             if not str(df.at[idx, col]).strip():
                 medici_shuffled = strutturati.copy()
                 random.shuffle(medici_shuffled)
                 
                 for med in medici_shuffled:
-                    # Controlli di sicurezza
+                    # Limiti 7 giorni
                     start_7d = max(0, idx - 6)
-                    ore_sett = (df.iloc[start_7d:idx] == med).sum().sum() * 12
+                    ore_sett = (df.iloc[start_7d:idx+1] == med).sum().sum() * 12 # +1 per includere eventuali altre sale già riempite oggi
                     
                     consecutivi = 0
                     if idx > 0 and any(df.iloc[idx-1, 1:] == med): consecutivi += 1
@@ -119,18 +121,18 @@ def suggerisci_turni():
                     
                     # Riposo post-weekend
                     post_weekend = False
-                    if idx >= 2:
-                        fatto_sab = any(df.iloc[idx-2, 1:] == med)
+                    if idx >= 1:
+                        fatto_sab = any(df.iloc[idx-2, 1:] == med) if idx >= 2 else False
                         fatto_dom = any(df.iloc[idx-1, 1:] == med)
                         if fatto_sab and fatto_dom and (idx % 7 in [0, 1]): post_weekend = True
 
-                    # Se rispetta i limiti, assegna
+                    # Validazione turno
                     if (ore_sett + 12) <= 48 and consecutivi < 3 and not post_weekend:
                         ore_mese = (df == med).sum().sum() * 12
-                        abbuono = (ds[med].isin(["Ferie", "Corso"])).sum() * 7.6
+                        assente = ds[med].isin(["Ferie", "Corso"]).sum() if med in ds.columns else 0
+                        abbuono = assente * 7.6
                         
-                        # Limite morbido sul monte ore per permettere la copertura di tutto il mese
-                        if (ore_mese + abbuono) < (target_ore + 24): 
+                        if (ore_mese + abbuono) < (target_ore + 48): # Ampia tolleranza per arrivare a fine mese
                             df.at[idx, col] = med
                             if check_errors(df, ds):
                                 df.at[idx, col] = ""
@@ -146,7 +148,7 @@ with tab1:
     st.session_state.df_desid = st.data_editor(st.session_state.df_desid.fillna("").replace("None", ""), column_config=config_des, use_container_width=True)
 
 with tab2:
-    if st.button("🪄 Genera Bozza Mensile Completa"):
+    if st.button("🪄 Genera Bozza Mensile Flessibile"):
         suggerisci_turni()
         st.rerun()
     
@@ -171,15 +173,7 @@ with tab3:
     for m in strutturati:
         ore_lav = (df_v.iloc[:, 1:] == m).sum().sum() * 12
         assente = st.session_state.df_desid[m].isin(["Ferie", "Corso"]).sum() if m in st.session_state.df_desid.columns else 0
-        
-        # Calcolo separato per evitare errori di sintassi
         ore_abb = assente * 7.6
         bilancio = round((ore_lav + ore_abb) - target_ore, 1)
-        
-        report.append({
-            "Medico": m, 
-            "Ore Lav.": ore_lav, 
-            "Abbuono (h)": ore_abb, 
-            "Bilancio": bilancio
-        })
+        report.append({"Medico": m, "Ore Lav.": ore_lav, "Abbuono (h)": ore_abb, "Bilancio": bilancio})
     st.table(pd.DataFrame(report))
