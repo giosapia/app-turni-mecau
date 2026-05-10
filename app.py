@@ -39,7 +39,7 @@ st.title("🏥 Gestore Turni MeCAU")
 
 st.sidebar.header("⚙️ Configurazione")
 anno = st.sidebar.number_input("Anno", value=2026)
-mese_idx = st.sidebar.selectbox("Mese", range(1, 13), index=datetime.now().month - 1)
+mese_idx = st.sidebar.selectbox("Mese", range(1, 13), index=4)
 
 strutturati_txt = st.sidebar.text_area("Strutturati", "Brancaleoni, Desiderio, Pazè, Sapia")
 jolly_txt = st.sidebar.text_area("Jolly", "Maurino, Leoncini, Trupja, Tatarciuc")
@@ -59,82 +59,87 @@ st.sidebar.metric("Monte Ore Target", f"{target_ore:.1f}h")
 
 giorni_labels = [format_giorno(d, mese_idx, anno, festivi) for d in range(1, num_days + 1)]
 
+# INIZIALIZZAZIONE SESSION STATE PULITA (Corretta per evitare None)
 if 'df_turni' not in st.session_state or st.session_state.get('prev_mese') != mese_idx:
-    st.session_state.df_turni = pd.DataFrame({"Giorno": giorni_labels, "MeCAU 1": "", "MeCAU 2": "", "MeCAU Notte": "", "Bassa Intensità": ""})
-    st.session_state.df_desid = pd.DataFrame(index=giorni_labels, columns=strutturati).fillna("")
+    st.session_state.df_turni = pd.DataFrame({
+        "Giorno": giorni_labels, "MeCAU 1": "", "MeCAU 2": "", "MeCAU Notte": "", "Bassa Intensità": ""
+    }).fillna("")
+    # Creiamo il DataFrame desiderata e forziamo tutte le celle a stringa vuota
+    st.session_state.df_desid = pd.DataFrame("", index=giorni_labels, columns=strutturati)
     st.session_state.prev_mese = mese_idx
 
 # --- LOGICA ERRORI ---
 def check_errors(df_in, ds_in):
     errs = []
-    for idx, row in df_in.iterrows():
+    df_clean = df_in.fillna("")
+    ds_clean = ds_in.fillna("")
+    
+    for idx, row in df_clean.iterrows():
         g = row["Giorno"]
-        attivi = [m for m in [row["MeCAU 1"], row["MeCAU 2"], row["MeCAU Notte"], row["Bassa Intensità"]] if m != ""]
+        attivi = [str(m) for m in [row["MeCAU 1"], row["MeCAU 2"], row["MeCAU Notte"], row["Bassa Intensità"]] if m and str(m).strip() != "" and str(m) != "None"]
+        
         if len(attivi) != len(set(attivi)):
-            for d in set([m for m in attivi if attivi.count(m) > 1]):
-                errs.append(f"🔴 **{g}**: {d} ha duplicati.")
+            duplicati = set([m for m in attivi if attivi.count(m) > 1])
+            for d in duplicati: errs.append(f"🔴 **{g}**: {d} ha duplicati.")
+        
         if idx > 0:
-            ieri_notte = df_in.iloc[idx-1]["MeCAU Notte"]
-            if ieri_notte != "" and ieri_notte in attivi:
+            ieri_notte = str(df_clean.iloc[idx-1]["MeCAU Notte"])
+            if ieri_notte and ieri_notte != "" and ieri_notte != "None" and ieri_notte in attivi:
                 errs.append(f"😴 **{g}**: {ieri_notte} post-notte.")
+        
         for col in ["MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Intensità"]:
-            m = row[col]
+            m = str(row[col])
             if m in strutturati:
-                v = ds_in.at[g, m]
-                if v in ["Ferie", "Corso", "Blocco"]: errs.append(f"❌ **{g}**: {m} in {v}.")
-                elif v == "No Giorno" and col != "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} No Giorno.")
-                elif v == "No Notte" and col == "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} No Notte.")
+                # Usiamo .get() o controlliamo se l'indice esiste per evitare errori con "None"
+                try:
+                    v = ds_clean.at[g, m]
+                    if v in ["Ferie", "Corso", "Blocco"]: errs.append(f"❌ **{g}**: {m} in {v}.")
+                    elif v == "No Giorno" and col != "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} No Giorno.")
+                    elif v == "No Notte" and col == "MeCAU Notte": errs.append(f"🚫 **{g}**: {m} No Notte.")
+                except: pass
     return errs
 
 # --- FUNZIONE DI SUGGERIMENTO ---
 def suggerisci_turni():
-    df = st.session_state.df_turni.copy()
-    ds = st.session_state.df_desid
-    
-    # Reset per sicurezza se vuoi una bozza pulita (opzionale)
-    # df.iloc[:, 1:] = "" 
-
-    # Ordine colonne per priorità diurna come richiesto
+    df = st.session_state.df_turni.fillna("").copy()
+    ds = st.session_state.df_desid.fillna("").copy()
     colonne_ordine = ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]
     
     for idx, row in df.iterrows():
-        giorno = row["Giorno"]
         for col in colonne_ordine:
-            if df.at[idx, col] == "": # Se la cella è vuota
-                # Prova a metterci uno strutturato che deve ancora fare ore
-                random.shuffle(strutturati) # Mischia per equità
-                for med in strutturati:
-                    # Calcolo ore attuali
+            valore_cella = str(df.at[idx, col])
+            if valore_cella == "" or valore_cella == "None":
+                medici_shuffled = strutturati.copy()
+                random.shuffle(medici_shuffled)
+                for med in medici_shuffled:
                     ore_fatte = (df == med).sum().sum() * 12
-                    abbuono = ds[med].isin(["Ferie", "Corso"]).sum() * 7.6
+                    abbuono = (ds[med].isin(["Ferie", "Corso"])).sum() * 7.6
                     if (ore_fatte + abbuono) < target_ore:
-                        # Verifica se può lavorare (no doppi, no post-notte, no desiderata)
                         df.at[idx, col] = med
-                        if check_errors(df, ds): # Se crea errore, annulla
+                        if check_errors(df, ds):
                             df.at[idx, col] = ""
                         else:
-                            break # Trovato, passa alla prossima colonna
-    
+                            break
     st.session_state.df_turni = df
 
 # --- INTERFACCIA ---
 tab1, tab2, tab3 = st.tabs(["📅 Desiderata", "🛠️ Griglia Turni", "📊 Riepilogo"])
 
 with tab1:
+    st.subheader("Inserimento Vincoli (Strutturati)")
     config_des = {m: st.column_config.SelectboxColumn(m, options=["", "Ferie", "Corso", "Blocco", "No Giorno", "No Notte"]) for m in strutturati}
-    st.session_state.df_desid = st.data_editor(st.session_state.df_desid, column_config=config_des, use_container_width=True)
+    # Forziamo il riempimento dei vuoti con "" prima di mostrare l'editor
+    st.session_state.df_desid = st.data_editor(st.session_state.df_desid.fillna(""), column_config=config_des, use_container_width=True)
 
 with tab2:
-    col_btn, col_err = st.columns([1, 3])
-    with col_btn:
-        if st.button("🪄 Suggerisci Turni (Bozza)"):
-            suggerisci_turni()
-            st.rerun()
+    if st.button("🪄 Suggerisci Turni (Bozza)"):
+        suggerisci_turni()
+        st.rerun()
     
     lista_errori = check_errors(st.session_state.df_turni, st.session_state.df_desid)
     if lista_errori:
-        with st.expander(f"⚠️ {len(lista_errori)} conflitti", expanded=False):
-            for e in lista_errori[:10]: st.write(e)
+        with st.expander(f"⚠️ {len(lista_errori)} conflitti rilevati", expanded=True):
+            for e in lista_errori: st.write(e)
     
     config_turni = {
         "Giorno": st.column_config.TextColumn("Giorno", disabled=True),
@@ -143,14 +148,16 @@ with tab2:
         "MeCAU Notte": st.column_config.SelectboxColumn("MeCAU Notte", options=lista_tutti),
         "Bassa Intensità": st.column_config.SelectboxColumn("Bassa Intensità", options=lista_bassa),
     }
-    st.session_state.df_turni = st.data_editor(st.session_state.df_turni, column_config=config_turni, use_container_width=True, hide_index=True)
+    st.session_state.df_turni = st.data_editor(st.session_state.df_turni.fillna(""), column_config=config_turni, use_container_width=True, hide_index=True)
 
 with tab3:
     st.subheader("Bilancio Ore")
+    df_c = st.session_state.df_turni.fillna("")
+    ds_c = st.session_state.df_desid.fillna("")
     report = []
     for m in strutturati:
-        ore_lav = (st.session_state.df_turni.iloc[:, 1:] == m).sum().sum() * 12
-        assente = st.session_state.df_desid[m].isin(["Ferie", "Corso"]).sum()
+        ore_lav = (df_c.iloc[:, 1:] == m).sum().sum() * 12
+        assente = ds_c[m].isin(["Ferie", "Corso"]).sum() if m in ds_c.columns else 0
         ore_abb = assente * 7.6
         tot = ore_lav + ore_abb
         report.append({"Medico": m, "Ore Lav.": ore_lav, "Abbuono (h)": ore_abb, "Totale": round(tot,1), "Bilancio (PA)": round(tot - target_ore,1)})
