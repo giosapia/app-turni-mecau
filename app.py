@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import calendar
-import random
 from fpdf import FPDF
 
 # --- COSTANTI ---
@@ -26,10 +25,11 @@ def get_festivi_susa(year):
     giorno_p = ((h + l - 7 * m_gauss + 114) % 31) + 1
     pasqua = datetime(year, mese_p, giorno_p).date()
     lista_date.extend([pasqua, pasqua + timedelta(days=1)])
-    # Patrono Susa (Lunedì dopo 3° domenica luglio)
+    # Patrono Susa (Lunedì dopo 3° domenica luglio) [cite: 6]
     luglio = [datetime(year, 7, d).date() for d in range(1, 32)]
     domeniche = [d for d in luglio if d.weekday() == 6]
-    lista_date.append(domeniche[2] + timedelta(days=1))
+    if len(domeniche) >= 3:
+        lista_date.append(domeniche[2] + timedelta(days=1))
     return lista_date
 
 def get_day_label(d, m, y, festivi):
@@ -45,6 +45,7 @@ def crea_pdf_susa(df, anno, mese_idx, festivi):
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 16)
     mese_n = list(calendar.month_name)[mese_idx].capitalize()
+    # Intestazione richiesta: Turni Pronto Soccorso di Susa + Mese/Anno [cite: 47]
     pdf.cell(0, 15, f"Turni Pronto Soccorso di Susa {mese_n} {anno}", ln=True, align="C")
     pdf.ln(5)
     headers = ["Giorno", "MeCAU 1", "MeCAU 2", "MeCAU Notte", "Bassa Int."]
@@ -56,9 +57,10 @@ def crea_pdf_susa(df, anno, mese_idx, festivi):
     pdf.set_font("Helvetica", "", 10)
     for i, row in df.iterrows():
         dt = datetime(anno, mese_idx, i + 1).date()
-        fill = (dt in festivi or dt.weekday() >= 5)
+        fill = (dt in festivi or dt.weekday() >= 5) # Evidenzia weekend e festivi [cite: 44, 47]
         if fill: pdf.set_fill_color(245, 245, 245)
-        pdf.cell(widths[0], 9, row["Giorno"].split(" ", 1)[1] if " " in row["Giorno"] else row["Giorno"], border=1, fill=fill)
+        giorno_testo = row["Giorno"].split(" ", 1)[1] if " " in row["Giorno"] else row["Giorno"]
+        pdf.cell(widths[0], 9, giorno_testo, border=1, fill=fill)
         pdf.cell(widths[1], 9, str(row["MeCAU 1"]), border=1, align="C", fill=fill)
         pdf.cell(widths[2], 9, str(row["MeCAU 2"]), border=1, align="C", fill=fill)
         pdf.cell(widths[3], 9, str(row["MeCAU Notte"]), border=1, align="C", fill=fill)
@@ -80,6 +82,7 @@ with st.sidebar:
 
 festivi_list = get_festivi_susa(anno)
 num_days = calendar.monthrange(anno, mese_idx)[1]
+# Calcolo Monte Ore: 7.6 * giorni feriali [cite: 4]
 giorni_feriali = sum(1 for d in range(1, num_days + 1) if datetime(anno, mese_idx, d).weekday() < 5 and datetime(anno, mese_idx, d).date() not in festivi_list)
 target_mensile = giorni_feriali * 7.6
 
@@ -102,16 +105,24 @@ with tab2:
         df = st.session_state.df_turni.copy()
         ds = st.session_state.df_desid.copy()
         
-        # Generazione Notte
+        # Funzione helper per calcolare ore attuali di un medico
+        def get_ore(medico, current_df, current_ds):
+            lavorate = (current_df == medico).sum().sum() * 12
+            ferie = sum(7.6 for i, v in enumerate(current_ds[medico]) if v in ["Ferie", "Corso"] and datetime(anno, mese_idx, i+1).date().weekday() < 5 and datetime(anno, mese_idx, i+1).date() not in festivi_list)
+            return lavorate + ferie
+
+        # Generazione Notte (Priorità strutturati fino a 4 notti/mese) [cite: 19]
         for i in range(num_days):
-            if df.at[i, "MeCAU Notte"] != "": continue # Salta se già riempito manualmente
+            if df.at[i, "MeCAU Notte"] != "": continue
             label = df.at[i, "Giorno"]
-            candidati = sorted(strutturati, key=lambda m: (df == m).sum().sum())
+            candidati = sorted(strutturati, key=lambda m: get_ore(m, df, ds))
             for m in candidati:
+                # Vincoli: Desiderata, Riposo Post-Notte (2 giorni), Max 4 notti, Monte Ore [cite: 19, 21, 22, 26]
                 if ds.at[label, m] in ["Ferie", "Corso", "Blocco", "No Notte"]: continue
                 if i > 0 and (df.at[i-1, "MeCAU Notte"] == m): continue
                 if i > 1 and (df.at[i-2, "MeCAU Notte"] == m): continue
                 if (df["MeCAU Notte"] == m).sum() >= 4: continue
+                if get_ore(m, df, ds) + 12 > target_mensile + 12: continue # Tollera sforamento minimo [cite: 15]
                 df.at[i, "MeCAU Notte"] = m; break
 
         # Generazione Diurni (MeCAU 1 e 2)
@@ -119,16 +130,18 @@ with tab2:
             label = df.at[i, "Giorno"]
             dt_curr = datetime(anno, mese_idx, i+1).date()
             for sala in ["MeCAU 1", "MeCAU 2"]:
-                if df.at[i, sala] != "": continue # Salta se già riempito manualmente
-                candidati_g = sorted(strutturati, key=lambda m: (df == m).sum().sum())
+                if df.at[i, sala] != "": continue
+                candidati_g = sorted(strutturati, key=lambda m: get_ore(m, df, ds))
                 for m in candidati_g:
                     if ds.at[label, m] in ["Ferie", "Corso", "Blocco", "No Giorno"]: continue
                     if m in [df.at[i, "MeCAU 1"], df.at[i, "MeCAU 2"], df.at[i, "MeCAU Notte"]]: continue
                     if i > 0 and (df.at[i-1, "MeCAU Notte"] == m): continue
                     if i > 1 and (df.at[i-2, "MeCAU Notte"] == m): continue
-                    # Limite settimanale
+                    # Limite settimanale (38h ~ 3 turni) [cite: 5, 13]
                     start_wk = max(0, i - dt_curr.weekday())
                     if (df.iloc[start_wk:i+1] == m).sum().sum() >= 4: continue 
+                    # Limite Monte Ore Mensile [cite: 15]
+                    if get_ore(m, df, ds) + 12 > target_mensile + 8: continue
                     df.at[i, sala] = m; break
         
         st.session_state.df_turni = df
@@ -140,7 +153,6 @@ with tab2:
             st.download_button("Salva PDF", data=bytes(pdf_bytes), file_name=f"Turni_Susa_{mese_idx}_{anno}.pdf", mime="application/pdf")
         except Exception as e: st.error(f"Errore: {e}")
 
-    # Editor Griglia con Key per stabilità
     lista_opzioni = [""] + strutturati + jolly_list + [f"{s} PA" for s in strutturati]
     st.session_state.df_turni = st.data_editor(st.session_state.df_turni, column_config={
         "Giorno": st.column_config.TextColumn(disabled=True),
@@ -153,7 +165,15 @@ with tab2:
 with tab3:
     stats = []
     for m in strutturati:
-        ore_l = (st.session_state.df_turni.isin([m, f"{m} PA"])).sum().sum() * 12
+        ore_l = (st.session_state.df_turni.isin([m])).sum().sum() * 12
+        pa_count = (st.session_state.df_turni.isin([f"{m} PA"])).sum().sum()
+        # Calcolo ferie feriali (concorrono al monte ore) [cite: 35, 36]
         ferie_h = sum(7.6 for i, v in enumerate(st.session_state.df_desid[m]) if v in ["Ferie", "Corso"] and datetime(anno, mese_idx, i+1).date().weekday() < 5 and datetime(anno, mese_idx, i+1).date() not in festivi_list)
-        stats.append({"Medico": m, "Ore Tot.": ore_l + ferie_h, "Delta": round(ore_l + ferie_h - target_mensile, 1), "Notti": (st.session_state.df_turni["MeCAU Notte"] == m).sum()})
+        stats.append({
+            "Medico": m, 
+            "Ore Tot (incl. Ferie)": ore_l + ferie_h, 
+            "Delta": round(ore_l + ferie_h - target_mensile, 1), 
+            "PA": pa_count,
+            "Notti": (st.session_state.df_turni["MeCAU Notte"] == m).sum()
+        })
     st.dataframe(pd.DataFrame(stats), use_container_width=True)
