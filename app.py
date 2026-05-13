@@ -75,7 +75,7 @@ with st.sidebar:
     anno = st.number_input("Anno", value=2026)
     mese_idx = st.selectbox("Mese", range(1, 13), index=4)
     strutturati = [s.strip() for s in st.text_area("Strutturati", "Brancaleoni, Desiderio, Pazè, Sapia").split(",") if s.strip()]
-    jolly_list = [j.strip() for j in st.text_area("Jolly", "Calasso, Melis, Sabbatino, Marsanic, Bruno, Castelli, Guglielmino, Trupja, Carbone, Dipietro, Di Stefano, Gili, Montebro, Ostuni, Palumbo, Ronco, Valobra, Vanoni, Veglio, Molino, Leoncini, Maurino, Tatarciuc, Sivera").split(",") if j.strip()]
+    jolly_list = [j.strip() for j in st.text_area("Jolly", "Calasso, Melis, Sabbatino, Marsanic, Bruno, Castelli, Guglielmino, Trupja, Carbone, Dipietro, Di Stefano, Gili, Montebro, Ostuni, Palumbo, Ronco, Valobra, Vanoni, Veglio, Molino, Leoncini, Maurino, Tatarciuc, Sivera, Isidori, Vellata").split(",") if j.strip()]
     gettonisti = [g.strip() for g in st.text_area("Gettonisti", "Borgiotto, Moshkina, Mascalchi, Garrone, Passoni, Sardo").split(",") if g.strip()]
 
 festivi_list = get_festivi_susa(anno)
