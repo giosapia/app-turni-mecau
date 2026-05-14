@@ -8,8 +8,7 @@ st.title("🏥 Configurazione Liste Medici")
 # --- SIDEBAR: GESTIONE DIPENDENTI ---
 with st.sidebar:
     st.header("👥 Anagrafica Medici")
-    st.info("Modifica i nomi qui sotto per aggiornare le liste in tempo reale.")
-
+    
     # 1. MEDICI STRUTTURATI
     lista_strutturati = st.text_area(
         "1. Medici Strutturati (MeCAU 1, 2 e Notte)", 
@@ -34,20 +33,5 @@ with st.sidebar:
     )
     gettonisti = [g.strip() for g in lista_gettonisti.split(",") if g.strip()]
 
-# --- VISUALIZZAZIONE DI CONTROLLO ---
-st.subheader("Riepilogo categorie")
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.write("**Strutturati:**")
-    st.write(strutturati)
-
-with col2:
-    st.write("**Jolly:**")
-    st.write(jolly)
-
-with col3:
-    st.write("**Gettonisti:**")
-    st.write(gettonisti)
-
-st.success("✅ Liste caricate correttamente. Dimmi come vuoi procedere con la prossima istruzione.")
+# Da qui in poi il programma ha in memoria le tre liste 'strutturati', 'jolly' e 'gettonisti' 
+# pronte per essere usate nelle prossime istruzioni.
