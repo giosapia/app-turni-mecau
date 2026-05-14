@@ -50,26 +50,29 @@ def calcola_festivi(year, month):
 
 festivi_italiani = calcola_festivi(anno, mese_scelto)
 
-# --- 3. LAYOUT GRAFICO E COLORAZIONE (CORRETTO) ---
+# --- 3. LAYOUT GRAFICO CON SEGNAPOSTO COLORATO ---
 
 if 'griglia' not in st.session_state or st.session_state.get('key_mese') != f"{mese_scelto}-{anno}":
     num_days = calendar.monthrange(anno, mese_scelto)[1]
-    ita_giorni = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
+    ita_giorni = ["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"]
     
     data = []
     for d in range(1, num_days + 1):
         dt = datetime(anno, mese_scelto, d).date()
-        tipo = "Feriale"
-        if dt in festivi_italiani: tipo = "FESTIVO"
-        elif dt.weekday() >= 5: tipo = "WEEKEND"
         
+        # Determina il simbolo colorato
+        prefix = "⚪" # Feriale
+        if dt in festivi_italiani:
+            prefix = "🔴" # Festivo
+        elif dt.weekday() >= 5:
+            prefix = "🟡" # Weekend
+            
         data.append({
-            "Giorno": f"{d} {ita_giorni[dt.weekday()]}",
+            "Giorno": f"{prefix} {d} {ita_giorni[dt.weekday()]}",
             "MeCAU 1": "",
             "MeCAU 2": "",
             "MeCAU Notte": "",
-            "Bassa Intensità": "",
-            "Tipo": tipo
+            "Bassa Intensità": ""
         })
     st.session_state.griglia = pd.DataFrame(data)
     st.session_state.key_mese = f"{mese_scelto}-{anno}"
@@ -79,28 +82,15 @@ medici_bassa = [""] + gettonisti
 
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
 
-# FUNZIONE DI STILE CORRETTA: accesso tramite row['Tipo'] invece di row.Tipo
-def style_rows(row):
-    color = ''
-    if row['Tipo'] == "FESTIVO":
-        color = 'background-color: #ffcccc'
-    elif row['Tipo'] == "WEEKEND":
-        color = 'background-color: #fff2cc'
-    return [color] * len(row)
-
-# Applichiamo lo stile al dataframe
-df_colorato = st.session_state.griglia.style.apply(style_rows, axis=1)
-
-# EDITOR GRAFICO
+# EDITOR GRAFICO (Senza Styler per massima compatibilità)
 df_editabile = st.data_editor(
-    df_colorato,
+    st.session_state.griglia,
     column_config={
-        "Giorno": st.column_config.TextColumn("Data", disabled=True),
-        "MeCAU 1": st.column_config.SelectboxColumn("MeCAU 1", options=medici_mecau),
-        "MeCAU 2": st.column_config.SelectboxColumn("MeCAU 2", options=medici_mecau),
-        "MeCAU Notte": st.column_config.SelectboxColumn("MeCAU Notte", options=medici_mecau),
-        "Bassa Intensità": st.column_config.SelectboxColumn("Bassa Intensità", options=medici_bassa),
-        "Tipo": None # Nasconde la colonna di supporto
+        "Giorno": st.column_config.TextColumn("Data", disabled=True, width="medium"),
+        "MeCAU 1": st.column_config.SelectboxColumn("MeCAU 1", options=medici_mecau, width="medium"),
+        "MeCAU 2": st.column_config.SelectboxColumn("MeCAU 2", options=medici_mecau, width="medium"),
+        "MeCAU Notte": st.column_config.SelectboxColumn("MeCAU Notte", options=medici_mecau, width="medium"),
+        "Bassa Intensità": st.column_config.SelectboxColumn("Bassa Intensità", options=medici_bassa, width="medium")
     },
     hide_index=True,
     use_container_width=True,
