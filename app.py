@@ -29,11 +29,8 @@ with st.sidebar:
 
 # --- 2. LOGICA FESTIVITÀ (CONGELATO) ---
 def calcola_festivi(year, month):
-    # Formato: (Mese, Giorno) - Corretto
     fisse = [(1, 1), (1, 6), (4, 25), (5, 1), (6, 2), (8, 15), (11, 1), (12, 8), (12, 25), (12, 26)]
     festivi = [datetime(year, m, g).date() for m, g in fisse]
-    
-    # Pasqua e Pasquetta
     a, b, c = year % 19, year // 100, year % 100
     d, e = b // 4, b % 4
     f = (b + 8) // 25
@@ -46,7 +43,6 @@ def calcola_festivi(year, month):
     giorno_p = ((h + l - 7 * m_gauss + 114) % 31) + 1
     pasqua = datetime(year, mese_p, giorno_p).date()
     festivi.extend([pasqua, pasqua + timedelta(days=1)])
-    
     if month == 7:
         dom = [datetime(year, 7, d).date() for d in range(1, 32) if datetime(year, 7, d).weekday() == 6]
         if len(dom) >= 3: festivi.append(dom[2] + timedelta(days=1))
@@ -54,9 +50,8 @@ def calcola_festivi(year, month):
 
 festivi_italiani = calcola_festivi(anno, mese_scelto)
 
-# --- 3. LAYOUT GRAFICO E COLORAZIONE ---
+# --- 3. LAYOUT GRAFICO E COLORAZIONE (CORRETTO) ---
 
-# Inizializzazione dati
 if 'griglia' not in st.session_state or st.session_state.get('key_mese') != f"{mese_scelto}-{anno}":
     num_days = calendar.monthrange(anno, mese_scelto)[1]
     ita_giorni = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
@@ -79,23 +74,24 @@ if 'griglia' not in st.session_state or st.session_state.get('key_mese') != f"{m
     st.session_state.griglia = pd.DataFrame(data)
     st.session_state.key_mese = f"{mese_scelto}-{anno}"
 
-# Liste medici per menu a tendina
 medici_mecau = [""] + strutturati + jolly
 medici_bassa = [""] + gettonisti
 
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
 
-# Funzione di stile CSS
+# FUNZIONE DI STILE CORRETTA: accesso tramite row['Tipo'] invece di row.Tipo
 def style_rows(row):
     color = ''
-    if row.Tipo == "FESTIVO": color = 'background-color: #ffcccc'
-    elif row.Tipo == "WEEKEND": color = 'background-color: #fff2cc'
+    if row['Tipo'] == "FESTIVO":
+        color = 'background-color: #ffcccc'
+    elif row['Tipo'] == "WEEKEND":
+        color = 'background-color: #fff2cc'
     return [color] * len(row)
 
-# Applicazione dello stile al DataFrame prima dell'editing
+# Applichiamo lo stile al dataframe
 df_colorato = st.session_state.griglia.style.apply(style_rows, axis=1)
 
-# Editor Grafico Interattivo
+# EDITOR GRAFICO
 df_editabile = st.data_editor(
     df_colorato,
     column_config={
@@ -104,12 +100,12 @@ df_editabile = st.data_editor(
         "MeCAU 2": st.column_config.SelectboxColumn("MeCAU 2", options=medici_mecau),
         "MeCAU Notte": st.column_config.SelectboxColumn("MeCAU Notte", options=medici_mecau),
         "Bassa Intensità": st.column_config.SelectboxColumn("Bassa Intensità", options=medici_bassa),
-        "Tipo": None # Colonna tecnica nascosta
+        "Tipo": None # Nasconde la colonna di supporto
     },
     hide_index=True,
     use_container_width=True,
     key="main_editor"
 )
 
-# Salvataggio modifiche
+# Salvataggio
 st.session_state.griglia = df_editabile
