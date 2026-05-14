@@ -28,37 +28,16 @@ with st.sidebar:
     # --- 2. SIDEBAR: SELEZIONE PERIODO (Punto 2) ---
     st.header("📅 Periodo di Riferimento")
     anno = st.number_input("Anno", min_value=2024, max_value=2030, value=2026)
-    
     mesi_nomi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
                  "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
-    
-    mese_testo = st.selectbox("Mese", mesi_nomi, index=4) # Default Maggio
+    mese_testo = st.selectbox("Mese", mesi_nomi, index=4)
     mese_scelto = mesi_nomi.index(mese_testo) + 1
 
-# --- LOGICA FESTIVITÀ CORRETTA ---
+# --- LOGICA FESTIVITÀ (Punto 2 - Congelato) ---
 def calcola_festivi(year, month):
-    # Feste Fisse Italiane (Mese, Giorno)
-    fisse = [
-        (1, 1),   # Capodanno
-        (1, 6),   # Epifania
-        (4, 25),  # Liberazione
-        (5, 1),   # Lavoro
-        (6, 2),   # Repubblica
-        (8, 15),  # Ferragosto
-        (11, 1),  # Ognissanti
-        (12, 8),  # Immacolata
-        (12, 25), # Natale
-        (12, 26)  # S. Stefano
-    ]
-    
-    festivi = []
-    for m, g in fisse:
-        festivi.append(datetime(year, m, g).date())
-
-    # Pasqua e Pasquetta
-    a = year % 19
-    b = year // 100
-    c = year % 100
+    fisse = [(1,1), (1,6), (4,25), (5,1), (6,2), (15,8), (11,1), (8,12), (25,12), (26,12)]
+    festivi = [datetime(year, m, g).date() for m, g in fisse]
+    a, b, c = year % 19, year // 100, year % 100
     d, e = b // 4, b % 4
     f = (b + 8) // 25
     g = (b - f + 1) // 3
@@ -69,54 +48,62 @@ def calcola_festivi(year, month):
     mese_p = (h + l - 7 * m_gauss + 114) // 31
     giorno_p = ((h + l - 7 * m_gauss + 114) % 31) + 1
     pasqua = datetime(year, mese_p, giorno_p).date()
-    festivi.append(pasqua)
-    festivi.append(pasqua + timedelta(days=1)) # Pasquetta
-
-    # Patrono Susa (Lunedì dopo 3° domenica di Luglio)
+    festivi.extend([pasqua, pasqua + timedelta(days=1)])
     if month == 7:
-        domeniche = [datetime(year, 7, d).date() for d in range(1, 32) 
-                     if datetime(year, 7, d).weekday() == 6]
-        if len(domeniche) >= 3:
-            festivi.append(domeniche[2] + timedelta(days=1))
-            
+        dom = [datetime(year, 7, d).date() for d in range(1, 32) if datetime(year, 7, d).weekday() == 6]
+        if len(dom) >= 3: festivi.append(dom[2] + timedelta(days=1))
     return festivi
 
-# Calcolo effettivo
-try:
-    festivi_italiani = calcola_festivi(anno, mese_scelto)
-except Exception as e:
-    st.error(f"Errore nel calcolo festivi: {e}")
-    festivi_italiani = []
+festivi_italiani = calcola_festivi(anno, mese_scelto)
 
-# --- COSTRUZIONE TABELLA ---
-num_giorni = calendar.monthrange(anno, mese_scelto)[1]
-giorni_data = []
-ita_nomi_giorni = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
+# --- 3. LOGICA LAYOUT E GRIGLIA TURNI ---
 
-for g in range(1, num_giorni + 1):
-    dt = datetime(anno, mese_scelto, g).date()
-    tipo = "Feriale"
-    if dt in festivi_italiani:
-        tipo = "FESTIVO"
-    elif dt.weekday() >= 5:
-        tipo = "WEEKEND"
+# Inizializziamo lo stato della griglia se non esiste o se cambia il mese
+if 'griglia_dati' not in st.session_state or st.session_state.get('current_month_year') != f"{mese_scelto}-{anno}":
+    num_giorni = calendar.monthrange(anno, mese_scelto)[1]
+    ita_nomi_giorni = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
     
-    giorni_data.append({
-        "Giorno": f"{g} {ita_nomi_giorni[dt.weekday()]}",
-        "Tipo": tipo
-    })
+    rows = []
+    for g in range(1, num_giorni + 1):
+        dt = datetime(anno, mese_scelto, g).date()
+        tipo = "Feriale"
+        if dt in festivi_italiani: tipo = "FESTIVO"
+        elif dt.weekday() >= 5: tipo = "WEEKEND"
+        
+        rows.append({
+            "Giorno": f"{g} {ita_nomi_giorni[dt.weekday()]}",
+            "MeCAU 1": "",
+            "MeCAU 2": "",
+            "MeCAU Notte": "",
+            "Bassa Intensità": "",
+            "_tipo_giorno": tipo # Colonna nascosta per gestire i colori
+        })
+    
+    st.session_state.griglia_dati = pd.DataFrame(rows)
+    st.session_state.current_month_year = f"{mese_scelto}-{anno}"
 
-df_cal = pd.DataFrame(giorni_data)
+# Definiamo i medici disponibili per i menu a tendina
+medici_mecau = [""] + strutturati + jolly
+medici_bassa = [""] + gettonisti
 
-# --- VISUALIZZAZIONE ---
-st.subheader(f"Calendario Turni: {mese_testo} {anno}")
+st.subheader(f"Inserimento Turni: {mese_testo} {anno}")
+st.info("Puoi scrivere direttamente nelle celle o selezionare i nomi dal menu.")
 
-def highlight_days(row):
-    color = ''
-    if row.Tipo == "FESTIVO":
-        color = 'background-color: #ffcccc' # Rosso
-    elif row.Tipo == "WEEKEND":
-        color = 'background-color: #fff2cc' # Giallo
-    return [color] * len(row)
+# Mostriamo l'editor della tabella
+df_editabile = st.data_editor(
+    st.session_state.griglia_dati,
+    column_config={
+        "Giorno": st.column_config.TextColumn("Giorno", disabled=True, width="medium"),
+        "MeCAU 1": st.column_config.SelectboxColumn("MeCAU 1", options=medici_mecau, width="medium"),
+        "MeCAU 2": st.column_config.SelectboxColumn("MeCAU 2", options=medici_mecau, width="medium"),
+        "MeCAU Notte": st.column_config.SelectboxColumn("MeCAU Notte", options=medici_mecau, width="medium"),
+        "Bassa Intensità": st.column_config.SelectboxColumn("Bassa Intensità", options=medici_bassa, width="medium"),
+        "_tipo_giorno": None # Nascondiamo la colonna di servizio
+    },
+    hide_index=True,
+    use_container_width=True,
+    key="editor_turni"
+)
 
-st.table(df_cal.style.apply(highlight_days, axis=1))
+# Salviamo i dati modificati nello stato
+st.session_state.griglia_dati = df_editabile
