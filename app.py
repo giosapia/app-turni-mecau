@@ -10,14 +10,17 @@ st.title("🏥 Calendario Turni MeCAU Susa")
 # --- 1. SIDEBAR: ANAGRAFICA (Punto 1 - Congelato con nuovi nomi Jolly) ---
 with st.sidebar:
     st.header("👥 Anagrafica Medici")
-    lista_strutturati = st.text_area("1. Medici Strutturati", value="Brancaleoni, Desiderio, Pazè, Sapia")
+    
+    lista_strutturati = st.text_area("1. Medici Strutturati", 
+                                   value="Brancaleoni, Desiderio, Pazè, Sapia")
     strutturati = [s.strip() for s in lista_strutturati.split(",") if s.strip()]
 
-    # Aggiunti Vellata e Isidori come richiesto
-    lista_jolly = st.text_area("2. Medici Jolly", value="Calasso, Melis, Sabbatino, Marsanic, Bruno, Castelli, Guglielmino, Trupja, Carbone, Dipietro, Di Stefano, Gili, Montebro, Ostuni, Palumbo, Ronco, Valobra, Vanoni, Veglio, Molino, Leoncini, Maurino, Tatarciuc, Sivera, Vellata, Isidori")
+    lista_jolly = st.text_area("2. Medici Jolly", 
+                               value="Calasso, Melis, Sabbatino, Marsanic, Bruno, Castelli, Guglielmino, Trupja, Carbone, Dipietro, Di Stefano, Gili, Montebro, Ostuni, Palumbo, Ronco, Valobra, Vanoni, Veglio, Molino, Leoncini, Maurino, Tatarciuc, Sivera, Vellata, Isidori")
     jolly = [j.strip() for j in lista_jolly.split(",") if j.strip()]
 
-    lista_gettonisti = st.text_area("3. Medici Gettonisti", value="Borgiotto, Moshkina, Mascalchi, Garrone, Passoni, Sardo")
+    lista_gettonisti = st.text_area("3. Medici Gettonisti", 
+                                   value="Borgiotto, Moshkina, Mascalchi, Garrone, Passoni, Sardo")
     gettonisti = [g.strip() for g in lista_gettonisti.split(",") if g.strip()]
 
     st.divider()
@@ -25,15 +28,21 @@ with st.sidebar:
     # --- 2. SIDEBAR: SELEZIONE PERIODO (Punto 2) ---
     st.header("📅 Periodo di Riferimento")
     anno = st.number_input("Anno", min_value=2024, max_value=2030, value=2026)
-    mese_scelto = st.selectbox("Mese", range(1, 13), format_func=lambda x: calendar.month_name[x])
+    
+    # Creiamo una lista di nomi mesi semplice per evitare errori di indice
+    mesi_nomi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
+                 "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
+    
+    mese_testo = st.selectbox("Mese", mesi_nomi, index=4) # Default Maggio (index 4)
+    mese_scelto = mesi_nomi.index(mese_testo) + 1
 
-# --- LOGICA FESTIVITÀ (Testata) ---
+# --- LOGICA FESTIVITÀ ---
 def calcola_festivi(year, month):
     # Feste Fisse Italiane
     fisse = [(1,1), (6,1), (25,4), (1,5), (2,6), (15,8), (1,11), (8,12), (25,12), (26,12)]
     festivi = [datetime(year, m, g).date() for m, g in fisse]
 
-    # Pasqua e Pasquetta
+    # Pasqua e Pasquetta (Algoritmo Butcher-Meeus)
     a = year % 19
     b = year // 100
     c = year % 100
@@ -43,9 +52,9 @@ def calcola_festivi(year, month):
     h = (19 * a + b - d - g + 15) % 30
     i, k = c // 4, c % 4
     l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * l) // 451
-    mese_p = (h + l - 7 * m + 114) // 31
-    giorno_p = ((h + l - 7 * m + 114) % 31) + 1
+    m_gauss = (a + 11 * h + 22 * l) // 451
+    mese_p = (h + l - 7 * m_gauss + 114) // 31
+    giorno_p = ((h + l - 7 * m_gauss + 114) % 31) + 1
     pasqua = datetime(year, mese_p, giorno_p).date()
     festivi.extend([pasqua, pasqua + timedelta(days=1)])
 
@@ -61,7 +70,7 @@ festivi_italiani = calcola_festivi(anno, mese_scelto)
 # --- COSTRUZIONE TABELLA ---
 num_giorni = calendar.monthrange(anno, mese_scelto)[1]
 giorni_data = []
-ita_giorni = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
+ita_nomi_giorni = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
 
 for g in range(1, num_giorni + 1):
     dt = datetime(anno, mese_scelto, g).date()
@@ -70,19 +79,20 @@ for g in range(1, num_giorni + 1):
     elif dt.weekday() >= 5: tipo = "WEEKEND"
     
     giorni_data.append({
-        "Giorno": f"{g} {ita_giorni[dt.weekday()]}",
+        "Giorno": f"{g} {ita_nomi_giorni[dt.weekday()]}",
         "Tipo": tipo
     })
 
 df_cal = pd.DataFrame(giorni_data)
 
-# Visualizzazione
-st.subheader(f"Configurazione Calendario: {calendar.month_name[mese_scelto]} {anno}")
+# --- VISUALIZZAZIONE ---
+st.subheader(f"Configurazione Calendario: {mese_testo} {anno}")
 
 def highlight_days(row):
     color = ''
-    if row.Tipo == "FESTIVO": color = 'background-color: #ffcccc' # Rosso
-    elif row.Tipo == "WEEKEND": color = 'background-color: #fff2cc' # Giallo
+    if row.Tipo == "FESTIVO": color = 'background-color: #ffcccc' # Rosso tenue
+    elif row.Tipo == "WEEKEND": color = 'background-color: #fff2cc' # Giallo tenue
     return [color] * len(row)
 
+# Mostra la tabella con lo stile applicato
 st.table(df_cal.style.apply(highlight_days, axis=1))
