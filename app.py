@@ -471,3 +471,12 @@ try:
     )
 except Exception as e:
     st.error(f"Errore nella generazione del PDF: {e}")
+
+# --- 6. PULSANTE DI GENERAZIONE AUTOMATICA (POSIZIONE FINALE) ---
+st.divider()
+st.info("💡 **Suggerimento**: Inserisci prima i turni fissi o le preferenze a mano nella tabella sopra, poi usa il tasto qui sotto per completare i turni mancanti dei medici strutturati.")
+
+col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+with col_btn2:
+    if st.button("🤖 Genera Automatica Turni Strutturati", use_container_width=True, type="primary"):
+        genera_turni_automatici()
