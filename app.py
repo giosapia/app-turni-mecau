@@ -177,6 +177,7 @@ notti_temp = {}
 
 # --- [FASE 1] INIZIALIZZAZIONE CONTATORI ---
 conteggio_settimanale = {nome: {} for nome in strutturati}
+conteggio_notti_mensili = {nome: 0 for nome in strutturati} # Contatore notti contrattuali
 ore_contrattuali_mese = {nome: 0 for nome in strutturati}
 ore_pa_mese = {nome: 0 for nome in strutturati}
 
@@ -184,8 +185,6 @@ for index, row in df_editabile.iterrows():
     giorno_corrente = index + 1
     dt_corrente = datetime(anno, mese_scelto, giorno_corrente).date()
     
-    # Identificazione giorni feriali per accredito Ferie/Corso
-    # (Lunedì-Venerdì e NON festivi)
     is_feriale = dt_corrente.weekday() < 5 and dt_corrente not in festivi_italiani
     
     # --- LOGICA ACCREDITO ORE DESIDERATA (FERIE/CORSO) ---
@@ -212,44 +211,37 @@ for index, row in df_editabile.iterrows():
         m_nome = medico["nome"]
         m_sala = medico["sala"]
         
-        # 1. VINCOLO DESIDERATA (Per tutti i medici se presenti in mappa)
+        # 1. VINCOLO DESIDERATA (Invariato)
         if m_nome in desiderata_map:
             for d in desiderata_map[m_nome]:
                 if d["giorno"] == giorno_corrente:
                     tipo = d["tipo"]
                     conflitto = False
-                    
                     if tipo in ["ferie", "corso", "no tutto il giorno", "no giorno"]:
                         conflitto = True
                     elif tipo == "no diurno" and m_sala in ["MeCAU 1", "MeCAU 2", "Bassa Intensità"]:
                         conflitto = True
                     elif tipo == "no notte" and m_sala == "MeCAU Notte":
                         conflitto = True
-                    
                     if conflitto:
                         errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} ha un vincolo '{tipo.upper()}'!")
 
         # 2. REGOLE SPECIFICHE STRUTTURATI
         if m_nome in strutturati:
-            # Identificazione settimana (ISO calendar)
             sett_n = dt_corrente.isocalendar()[1]
-            
-            # Conteggio turni per settimana
             if sett_n not in conteggio_settimanale[m_nome]:
                 conteggio_settimanale[m_nome][sett_n] = 0
             conteggio_settimanale[m_nome][sett_n] += 1
             
-            # Conteggio Ore Mensili (Separazione PA)
             if medico["is_pa"]:
                 ore_pa_mese[m_nome] += 12
             else:
                 ore_contrattuali_mese[m_nome] += 12
 
-            # Vincolo Bassa Intensità
             if m_sala == "Bassa Intensità":
                 errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} (Strutturato) non può stare in Bassa Intensità!")
 
-            # Controllo Riposo (X+1 e X+2) - Ignorato se PA
+            # Controllo Riposo e Conteggio Notti (SOLO SE NON PA)
             if not medico["is_pa"]:
                 if m_nome in notti_temp:
                     distanza = giorno_corrente - notti_temp[m_nome]
@@ -257,30 +249,32 @@ for index, row in df_editabile.iterrows():
                         errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} è in SMONTO NOTTE (X+1)!")
                     elif distanza == 2:
                         avvisi_carenza.append(f"🟡 **{row['Giorno']}**: {m_nome} in deroga al riposo (X+2).")
-                        notti_temp[m_nome] = giorno_corrente - 1
+                
+                # Registrazione notte e incremento contatore (Esclude PA)
+                if m_sala == "MeCAU Notte":
+                    notti_temp[m_nome] = giorno_corrente
+                    conteggio_notti_mensili[m_nome] += 1 
 
-            # Registrazione notte (Solo se non PA)
-            if m_sala == "MeCAU Notte" and not medico["is_pa"]:
-                notti_temp[m_nome] = giorno_corrente
-
-    # VINCOLO 6a: UNICITÀ GIORNALIERA
+    # VINCOLO 6a: UNICITÀ GIORNALIERA (Invariato)
     nomi_soli = [d["nome"] for d in lavoro_oggi]
     if len(nomi_soli) != len(set(nomi_soli)):
         duplicati = set([x for x in nomi_soli if nomi_soli.count(x) > 1])
         errori_rilevati.append(f"🔴 **{row['Giorno']}**: {', '.join(duplicati)} duplicato nello stesso giorno!")
 
-# --- [FASE 3] ANALISI SETTIMANALE E SIDEBAR (FUORI DAL CICLO) ---
+# --- [FASE 3] ANALISI MENSILE E SIDEBAR ---
+for medico, n_notti in conteggio_notti_mensili.items():
+    if n_notti > 4:
+        errori_rilevati.append(f"🚨 **Limite Notti**: {medico} ha troppe notti contrattuali ({n_notti}/4)!")
+
 for medico, settimane in conteggio_settimanale.items():
     for sett, n_turni in settimane.items():
-        # Limite esteso a 5 se il medico ha fatto almeno un turno PA nel mese
         limite_max = 5 if ore_pa_mese[medico] > 0 else 4
-        
         if n_turni > limite_max:
             errori_rilevati.append(f"🚨 **Settimana {sett}**: {medico} ha troppi turni ({n_turni}). Max: {limite_max}")
-        elif n_turni < 3 and n_turni > 0:
+        elif 0 < n_turni < 3:
             avvisi_carenza.append(f"🔵 **Settimana {sett}**: {medico} ha solo {n_turni} turni. Minimo richiesto: 3.")
 
-# Consuntivo in Sidebar
+# Sidebar (Invariata)
 st.sidebar.divider()
 st.sidebar.subheader("📈 Bilancio Ore Strutturati")
 for medico in strutturati:
@@ -288,13 +282,10 @@ for medico in strutturati:
     pa = ore_pa_mese[medico]
     delta = fatte - ore_dovute_calcolate
     colore = "green" if delta >= 0 else "orange"
-    
     st.sidebar.markdown(f"**{medico}**")
     st.sidebar.write(f"Contrattuali: {fatte:.1f} / {ore_dovute_calcolate}h (:{colore}[{delta:+.1f}h])")
-    if pa > 0:
-        st.sidebar.write(f"✨ Ore in PA: **{pa} h**")
+    if pa > 0: st.sidebar.write(f"✨ Ore in PA: **{pa} h**")
 
-# Visualizzazione messaggi nel mainframe
 if errori_rilevati or avvisi_carenza:
     for err in errori_rilevati: st.error(err)
     for warn in avvisi_carenza: st.warning(warn)
