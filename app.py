@@ -26,6 +26,30 @@ with st.sidebar:
     mesi_nomi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
     mese_testo = st.selectbox("Mese", mesi_nomi, index=4) 
     mese_scelto = mesi_nomi.index(mese_testo) + 1
+    # ... [Sotto alla scelta di mese e anno nella Sidebar] ...
+    mese_scelto = mesi_nomi.index(mese_testo) + 1
+
+    # --- NUOVO: CALCOLO DEBITO ORARIO ---
+    def conta_feriali(year, month, festivi):
+        giorni_nel_mese = calendar.monthrange(year, month)[1]
+        feriali = 0
+        for d in range(1, giorni_nel_mese + 1):
+            dt = datetime(year, month, d).date()
+            # Un giorno è feriale se: 
+            # 1. Non è Sabato (5) o Domenica (6)
+            # 2. Non è tra i festivi nazionali/patronali
+            if dt.weekday() < 5 and dt not in festivi:
+                feriali += 1
+        return feriali
+
+    # Calcoliamo i festivi necessari per il conteggio dei feriali
+    festivi_per_conteggio = calcola_festivi(anno, mese_scelto)
+    giorni_feriali = conta_feriali(anno, mese_scelto, festivi_per_conteggio)
+    ore_dovute = round(giorni_feriali * 7.6, 1)
+
+    st.divider()
+    st.sidebar.metric(label="📊 Debito Orario Mensile", value=f"{ore_dovute} h")
+    st.sidebar.caption(f"Basato su {giorni_feriali} giorni feriali (7.6h/gg)")
 
 # --- 2. LOGICA FESTIVITÀ (CONGELATO) ---
 def calcola_festivi(year, month):
