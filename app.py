@@ -300,6 +300,7 @@ if errori_rilevati or avvisi_carenza:
     for warn in avvisi_carenza: st.warning(warn)
 else:
     st.success("✅ Vincoli di sicurezza rispettati.")
+    
 # --- 5. FUNZIONE GENERAZIONE PDF E PULSANTE ---
 st.divider()
 st.subheader("🖨️ Esportazione")
@@ -312,10 +313,10 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
     doc = SimpleDocTemplate(
         buffer, 
         pagesize=landscape(A4),
-        rightMargin=30, 
-        leftMargin=30, 
-        topMargin=30, 
-        bottomMargin=30
+        rightMargin=20, 
+        leftMargin=20, 
+        topMargin=20, 
+        bottomMargin=20
     )
     
     elementi = []
@@ -334,24 +335,23 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
 
   # ... (parte iniziale della funzione invariata fino a stile)
 
-    # Definizione larghezza colonne (totale circa 780 punti per A4 Landscape)
-    tabella = Table(dati_per_tabella, colWidths=[70, 175, 175, 175, 175])
+   # Definizione larghezza colonne
+    tabella = Table(dati_per_tabella, colWidths=[65, 185, 185, 185, 185])
     
-    # Stile della tabella - TENTATIVO 1: Font 10pt + Padding ridotto
+    # Stile della tabella - TENTATIVO 2: Helvetica 8.5pt + Padding minimo
     stile = TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Times-Bold'),       # Intestazione Times Bold
-        ('FONTNAME', (0, 1), (-1, -1), 'Times-Roman'),     # Corpo tabella Times
-        ('FONTSIZE', (0, 0), (-1, -1), 10),                 # Dimensione richiesta 10pt
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8.5),                # Dimensione ridotta a 8.5pt
         ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
         
-        # RIDUZIONE PADDING: Fondamentale per far stare 31 righe in un unico foglio
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('LEADPADDING', (0, 0), (-1, -1), 0),
+        # PADDING MINIMO: Ridotto a 2.5 per stringere le righe
+        ('TOPPADDING', (0, 0), (-1, -1), 2.5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2.5),
     ])
     
     # ... (resto della funzione con i colori festivi invariato)
