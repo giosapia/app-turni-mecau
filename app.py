@@ -157,7 +157,10 @@ def genera_turni_automatici():
                             if dt_temp.weekday() >= 5 and (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
                                 wk_attuali += 1
                         if wk_attuali >= 4: continue # Limite dei 2 weekend (4 turni totali)
-
+# 4b. Verifica se il medico è già assegnato ad un'altra sala nello stesso giorno
+                    # Questo impedisce i duplicati "Brancaleoni - Brancaleoni" nello stesso giorno
+                    if (df_lavoro.iloc[i][["MeCAU 1", "MeCAU 2", "MeCAU Notte"]] == med).any():
+                        continue
                     # 5. Stop al raggiungimento Monte Ore
                     # Conteggio turni già assegnati (12h ciascuno)
                     ore_fatte = (df_lavoro == med).sum().sum() * 12
