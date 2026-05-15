@@ -43,7 +43,6 @@ with st.sidebar:
         return feriali
 
     # Calcoliamo i festivi necessari per il conteggio dei feriali
-    festivi_per_conteggio = calcola_festivi(anno, mese_scelto)
     giorni_feriali = conta_feriali(anno, mese_scelto, festivi_per_conteggio)
     ore_dovute = round(giorni_feriali * 7.6, 1)
 
