@@ -112,6 +112,84 @@ st.sidebar.metric(label="📊 Debito Orario Mensile", value=f"{ore_dovute_calcol
 st.sidebar.caption(f"Basato su {giorni_f} giorni feriali (7.6h/gg)")
 
 # --- FINE LOGICA ORE ---
+# --- NUOVA FUNZIONE: GENERAZIONE AUTOMATICA (Protocollo 2.1) ---
+def genera_turni_automatici():
+    # Verifichiamo che la griglia sia già stata inizializzata
+    if key_stato not in st.session_state:
+        return
+        
+    df_lavoro = st.session_state[key_stato].copy()
+    target = ore_dovute_calcolate
+    colonne_auto = ["MeCAU Notte", "MeCAU 1", "MeCAU 2"]
+    
+    for col in colonne_auto:
+        for i in range(len(df_lavoro)):
+            # Operiamo solo sulle celle vuote
+            if df_lavoro.iloc[i][col] == "" or df_lavoro.iloc[i][col] is None:
+                giorno_corrente = i + 1
+                dt_corrente = datetime(anno, mese_scelto, giorno_corrente).date()
+                
+                candidati_validi = []
+                for med in strutturati:
+                    # --- FILTRI HARD (VINCOLI DI SICUREZZA) ---
+                    # 1. Desiderata (Ferie, Corsi, No Notte, ecc.)
+                    ha_vincolo = False
+                    if med in desiderata_map:
+                        for d in desiderata_map[med]:
+                            if d["giorno"] == giorno_corrente:
+                                if d["tipo"] in ["ferie", "corso", "no tutto il giorno"]: ha_vincolo = True
+                                if d["tipo"] == "no diurno" and col in ["MeCAU 1", "MeCAU 2"]: ha_vincolo = True
+                                if d["tipo"] == "no notte" and col == "MeCAU Notte": ha_vincolo = True
+                    if ha_vincolo: continue
+
+                    # 2. Smonto Notte (X+1)
+                    if i > 0 and df_lavoro.at[i-1, "MeCAU Notte"] == med: continue
+                    
+                    # 3. Limite 4 Notti
+                    if col == "MeCAU Notte" and (df_lavoro["MeCAU Notte"] == med).sum() >= 4: continue
+                    
+                    # 4. Limite 2 Weekend
+                    is_wk = dt_corrente.weekday() >= 5
+                    if is_wk:
+                        wk_attuali = 0
+                        for d_idx in range(len(df_lavoro)):
+                            dt_temp = datetime(anno, mese_scelto, d_idx+1).date()
+                            if dt_temp.weekday() >= 5 and (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
+                                wk_attuali += 1
+                        if wk_attuali >= 4: continue # Limite dei 2 weekend (4 turni totali)
+
+                    # 5. Stop al raggiungimento Monte Ore
+                    # Conteggio turni già assegnati (12h ciascuno)
+                    ore_fatte = (df_lavoro == med).sum().sum() * 12
+                    # Aggiunta crediti per ferie/corsi
+                    if med in desiderata_map:
+                        for d in desiderata_map[med]:
+                            dt_des = datetime(anno, mese_scelto, d["giorno"]).date()
+                            if d["tipo"] in ["ferie", "corso"] and dt_des.weekday() < 5 and dt_des not in festivi_italiani:
+                                ore_fatte += 7.6
+                    
+                    if ore_fatte >= target: continue
+
+                    candidati_validi.append(med)
+
+                if candidati_validi:
+                    # Logica Soft: Preferenza per chi ha lavorato meno ore per equità
+                    candidati_validi.sort(key=lambda m: (df_lavoro == m).sum().sum())
+                    
+                    # Logica Soft: Weekend consecutivo (Deroga se necessario)
+                    if dt_corrente.weekday() >= 5 and i >= 7:
+                        med_scelto = candidati_validi[0]
+                        # Controlla se ha lavorato nel weekend precedente (7 giorni fa)
+                        ha_lavorato_scorso = (df_lavoro.iloc[max(0, i-7):i][colonne_auto] == med_scelto).any().any()
+                        if ha_lavorato_scorso and len(candidati_validi) > 1:
+                            med_scelto = candidati_validi[1] 
+                        df_lavoro.at[i, col] = med_scelto
+                    else:
+                        df_lavoro.at[i, col] = candidati_validi[0]
+
+    # Aggiornamento dello stato e refresh
+    st.session_state[key_stato] = df_lavoro
+    st.rerun()
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
 
 # --- 3. LAYOUT GRAFICO E GRIGLIA ---
