@@ -30,32 +30,38 @@ with st.sidebar:
     
     st.divider()
 
-    # --- NUOVA SEZIONE: DESIDERATA E FERIE ---
+    # --- NUOVA SEZIONE: DESIDERATA E FERIE (Con supporto Range 1-31) ---
     st.header("🚫 Desiderata e Ferie")
     st.caption("Tipi: Ferie, Corso, No Diurno, No Notte, No Tutto il Giorno")
-    st.caption("Es: Sapia: Ferie 5, No Notte 10; Brancaleoni: Corso 12")
+    st.caption("Esempi: Sapia: No Notte 1-31; Brancaleoni: Ferie 10-15, Corso 20")
     testo_desiderata = st.text_area("Inserisci Desiderata (separa i medici con ';')", value="")
     
-    # Parsing dei desiderata in un dizionario { Nome: [{"tipo": tipo, "giorno": giorno}] }
     desiderata_map = {}
     if testo_desiderata:
-        # Dividiamo per medico usando il punto e virgola
         for riga in testo_desiderata.split(";"):
             if ":" in riga:
                 med, istruzioni = riga.split(":")
                 med_nome = med.strip()
                 desiderata_map[med_nome] = []
-                # Dividiamo le istruzioni del singolo medico usando la virgola
                 for istruzione in istruzioni.split(","):
                     parti = istruzione.strip().split()
                     if len(parti) >= 2:
-                        # Il tipo può essere composto da più parole (es. "No Diurno")
                         tipo = " ".join(parti[:-1]).lower().strip()
-                        try:
-                            giorno = int(parti[-1])
-                            desiderata_map[med_nome].append({"tipo": tipo, "giorno": giorno})
-                        except ValueError:
-                            pass
+                        giorno_str = parti[-1]
+                        
+                        # Gestione del Range (es. 1-15)
+                        if "-" in giorno_str:
+                            try:
+                                inizio, fine = map(int, giorno_str.split("-"))
+                                for g in range(inizio, fine + 1):
+                                    desiderata_map[med_nome].append({"tipo": tipo, "giorno": g})
+                            except ValueError: pass
+                        # Gestione giorno singolo
+                        else:
+                            try:
+                                giorno = int(giorno_str)
+                                desiderata_map[med_nome].append({"tipo": tipo, "giorno": giorno})
+                            except ValueError: pass
 
     st.divider()
 # --- FINE INPUT SIDEBAR ---
