@@ -2,7 +2,11 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import calendar
-
+import io
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 # Impostazioni pagina
 st.set_page_config(page_title="Gestione Medici Susa", layout="wide")
 st.title("🏥 Calendario Turni MeCAU Susa")
