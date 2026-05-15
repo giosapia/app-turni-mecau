@@ -52,12 +52,10 @@ festivi_italiani = calcola_festivi(anno, mese_scelto)
 
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
 
-# --- 3. LAYOUT GRAFICO E GRIGLIA (CON PALLINI E VINCOLI) ---
+# --- 3. LAYOUT GRAFICO E GRIGLIA ---
 
-# Definiamo la chiave per lo stato (necessaria per evitare il NameError)
-key_stato = f"griglia_{mese_scelto}_{anno}_final"
+key_stato = f"griglia_{mese_scelto}_{anno}_v3_final"
 
-# Inizializzazione della griglia se non esiste o se cambia mese/anno
 if key_stato not in st.session_state:
     num_days = calendar.monthrange(anno, mese_scelto)[1]
     ita_giorni = ["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"]
@@ -65,8 +63,6 @@ if key_stato not in st.session_state:
     data = []
     for d in range(1, num_days + 1):
         dt = datetime(anno, mese_scelto, d).date()
-        
-        # Logica pallini (congelata)
         if dt in festivi_italiani:
             pref = "🔴"
         elif dt.weekday() >= 5:
@@ -76,20 +72,15 @@ if key_stato not in st.session_state:
             
         data.append({
             "Giorno": f"{pref} {d} {ita_giorni[dt.weekday()]}",
-            "MeCAU 1": "", 
-            "MeCAU 2": "", 
-            "MeCAU Notte": "", 
-            "Bassa Intensità": ""
+            "MeCAU 1": "", "MeCAU 2": "", "MeCAU Notte": "", "Bassa Intensità": ""
         })
     st.session_state[key_stato] = pd.DataFrame(data)
 
-# Liste medici per i menu a tendina
 medici_mecau = [""] + strutturati + jolly
 medici_bassa = [""] + gettonisti
 
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
 
-# EDITOR GRAFICO INTERATTIVO
 df_editabile = st.data_editor(
     st.session_state[key_stato],
     column_config={
@@ -104,7 +95,6 @@ df_editabile = st.data_editor(
     key="main_editor"
 )
 
-# Salvataggio immediato nello stato
 st.session_state[key_stato] = df_editabile
 
 # --- 4. VERIFICA VINCOLI (Punto 6a & 6b) ---
@@ -113,29 +103,28 @@ st.subheader("🛡️ Controllo Vincoli e Sicurezza")
 
 errori_rilevati = []
 avvisi_carenza = []
-riposo_dovuto = {} 
+
+# Reset temporaneo delle notti per il ricalcolo coerente della griglia
+notti_temp = {}
 
 for index, row in df_editabile.iterrows():
     giorno_corrente = index + 1
     nomi_giorno = {
-        "MeCAU 1": row["MeCAU 1"],
-        "MeCAU 2": row["MeCAU 2"],
-        "MeCAU Notte": row["MeCAU Notte"],
-        "Bassa Intensità": row["Bassa Intensità"]
+        "MeCAU 1": row["MeCAU 1"], "MeCAU 2": row["MeCAU 2"],
+        "MeCAU Notte": row["MeCAU Notte"], "Bassa Intensità": row["Bassa Intensità"]
     }
     
     lavoro_oggi = []
     for sala, n in nomi_giorno.items():
         if n and isinstance(n, str) and n.strip() != "":
             nome_pulito = n.replace(" PA", "").strip()
-            is_pa = " PA" in n
-            lavoro_oggi.append({"nome": nome_pulito, "sala": sala, "is_pa": is_pa})
+            lavoro_oggi.append({"nome": nome_pulito, "sala": sala, "is_pa": " PA" in n})
 
     # VINCOLO 6a: UNICITÀ GIORNALIERA
     nomi_soli = [d["nome"] for d in lavoro_oggi]
     if len(nomi_soli) != len(set(nomi_soli)):
         duplicati = set([x for x in nomi_soli if nomi_soli.count(x) > 1])
-        errori_rilevati.append(f"🔴 **{row['Giorno']}**: {', '.join(duplicati)} è inserito in più sale!")
+        errori_rilevati.append(f"🔴 **{row['Giorno']}**: {', '.join(duplicati)} duplicato nello stesso giorno!")
 
     # VINCOLO 6b: REGOLE STRUTTURATI
     for medico in lavoro_oggi:
@@ -145,26 +134,25 @@ for index, row in df_editabile.iterrows():
         if m_nome in strutturati:
             # Esclusività Bassa Intensità
             if m_sala == "Bassa Intensità":
-                errori_rilevati.append(f"🔴 **{row['Giorno']}**: Lo strutturato {m_nome} non può stare in Bassa Intensità!")
+                errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} (Strutturato) non può stare in Bassa Intensità!")
 
-            # Controllo Riposo (X+1, X+2)
-            if m_nome in riposo_dovuto and riposo_dovuto[m_nome] <= giorno_corrente:
-                if not medico["is_pa"]:
-                    ultima_notte = st.session_state.get(f"notte_{m_nome}", -10)
-                    distanza = giorno_corrente - ultima_notte
+            # Controllo Riposo (X+1 e X+2)
+            if not medico["is_pa"]:
+                if m_nome in notti_temp:
+                    distanza = giorno_corrente - notti_temp[m_nome]
                     
                     if distanza == 1:
-                        errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} è in SMONTO NOTTE (X+1). Vietato!")
+                        errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} è in SMONTO NOTTE (X+1)!")
                     elif distanza == 2:
-                        avvisi_carenza.append(f"🟡 **{row['Giorno']}**: {m_nome} lavora in deroga al riposo (X+2). Recupero necessario domani.")
-                        riposo_dovuto[m_nome] = giorno_corrente + 1 
-                
-            # Se fa la NOTTE, imposta scadenza riposo
-            if m_sala == "MeCAU Notte" and not medico["is_pa"]:
-                st.session_state[f"notte_{m_nome}"] = giorno_corrente
-                riposo_dovuto[m_nome] = giorno_corrente + 2
+                        avvisi_carenza.append(f"🟡 **{row['Giorno']}**: {m_nome} in deroga al riposo (X+2).")
+                        # Spostiamo la 'notte virtuale' per proteggere il giorno X+3
+                        notti_temp[m_nome] = giorno_corrente - 1
 
-# Visualizzazione finale
+            # Registrazione turno notturno
+            if m_sala == "MeCAU Notte" and not medico["is_pa"]:
+                notti_temp[m_nome] = giorno_corrente
+
+# Visualizzazione messaggi
 if errori_rilevati or avvisi_carenza:
     for err in errori_rilevati: st.error(err)
     for warn in avvisi_carenza: st.warning(warn)
