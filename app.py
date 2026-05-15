@@ -309,7 +309,7 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
     # Creazione di un buffer di memoria per il file
     buffer = io.BytesIO()
     
-   # Margini del foglio ridotti a 15pt per sfruttare ogni millimetro
+    # Margini del foglio ridotti a 15pt per sfruttare ogni millimetro
     doc = SimpleDocTemplate(
         buffer, 
         pagesize=landscape(A4),
@@ -330,6 +330,9 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
     elementi.append(Paragraph(titolo, stile_titolo))
     elementi.append(Spacer(1, 6)) # Spazio ridotto da 12 a 6 punti
 
+    # --- RIGA MANCANTE RIPRISTINATA: Conversione DataFrame per ReportLab ---
+    dati_per_tabella = [df.columns.tolist()] + df.values.tolist()
+
     # Definizione larghezza colonne
     tabella = Table(dati_per_tabella, colWidths=[60, 185, 185, 185, 185])
     
@@ -341,15 +344,13 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),                # Ridotto a 8pt (standard professionale per tabelle dense)
+        ('FONTSIZE', (0, 0), (-1, -1), 8),                # Ridotto a 8pt
         ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
         
-        # PADDING ULTRA-COMPATTO: Ridotto a 1.8
+        # PADDING ULTRA-COMPATTO: Ridotto a 1.8 per recuperare le 3 righe extra
         ('TOPPADDING', (0, 0), (-1, -1), 1.8),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 1.8),
     ])
-    
-    # ... (resto della funzione con i colori festivi invariato)
     
     # Colorazione righe festivi/domeniche
     for i, riga in enumerate(dati_per_tabella[1:], start=1):
