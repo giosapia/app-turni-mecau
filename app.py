@@ -148,15 +148,20 @@ def genera_turni_automatici():
                     # 3. Limite 4 Notti
                     if col == "MeCAU Notte" and (df_lavoro["MeCAU Notte"] == med).sum() >= 4: continue
                     
-                    # 4. Limite 2 Weekend
+                   # 4. Limite 2 Weekend (Hard Constraint)
                     is_wk = dt_corrente.weekday() >= 5
                     if is_wk:
-                        wk_attuali = 0
+                        # Contiamo quanti giorni di weekend ha già in tabella
+                        giorni_wk_lavorati = 0
                         for d_idx in range(len(df_lavoro)):
                             dt_temp = datetime(anno, mese_scelto, d_idx+1).date()
-                            if dt_temp.weekday() >= 5 and (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
-                                wk_attuali += 1
-                        if wk_attuali >= 4: continue # Limite dei 2 weekend (4 turni totali)
+                            if dt_temp.weekday() >= 5:
+                                if (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
+                                    giorni_wk_lavorati += 1
+                        
+                        # Se ha già raggiunto i 4 turni (2 weekend), lo escludiamo
+                        if giorni_wk_lavorati >= 4: 
+                            continue
 # 4b. Verifica se il medico è già assegnato ad un'altra sala nello stesso giorno
                     # Questo impedisce i duplicati "Brancaleoni - Brancaleoni" nello stesso giorno
                     if (df_lavoro.iloc[i][["MeCAU 1", "MeCAU 2", "MeCAU Notte"]] == med).any():
