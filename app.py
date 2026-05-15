@@ -332,21 +332,29 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
     for riga in df.values.tolist():
         dati_per_tabella.append(riga)
 
+  # ... (parte iniziale della funzione invariata fino a stile)
+
     # Definizione larghezza colonne (totale circa 780 punti per A4 Landscape)
-    # Giorno: 70pt, Le 4 colonne medici: 175pt l'una
     tabella = Table(dati_per_tabella, colWidths=[70, 175, 175, 175, 175])
     
-    # Stile della tabella
+    # Stile della tabella - TENTATIVO 1: Font 10pt + Padding ridotto
     stile = TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),         # Intestazione grigia
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),     # Testo bianco in intestazione
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),                 # Tutto centrato
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),               # Centratura verticale
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),       # Intestazione in grassetto
-        ('FONTSIZE', (0, 0), (-1, -1), 8),                     # Font leggermente ridotto per A4
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),         # Griglia nera sottile
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Times-Bold'),       # Intestazione Times Bold
+        ('FONTNAME', (0, 1), (-1, -1), 'Times-Roman'),     # Corpo tabella Times
+        ('FONTSIZE', (0, 0), (-1, -1), 10),                 # Dimensione richiesta 10pt
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        
+        # RIDUZIONE PADDING: Fondamentale per far stare 31 righe in un unico foglio
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('LEADPADDING', (0, 0), (-1, -1), 0),
     ])
+    
+    # ... (resto della funzione con i colori festivi invariato)
     
     # Colorazione righe festivi/domeniche
     for i, riga in enumerate(dati_per_tabella[1:], start=1):
