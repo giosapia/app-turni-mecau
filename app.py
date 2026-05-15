@@ -7,7 +7,7 @@ import calendar
 st.set_page_config(page_title="Gestione Medici Susa", layout="wide")
 st.title("🏥 Calendario Turni MeCAU Susa")
 
-# --- 1. SIDEBAR: ANAGRAFICA (CONGELATO) ---
+# --- 1. SIDEBAR: ANAGRAFICA E DESIDERATA (Aggiornato) ---
 with st.sidebar:
     st.header("👥 Anagrafica Medici")
     
@@ -28,15 +28,37 @@ with st.sidebar:
     mese_testo = st.selectbox("Mese", mesi_nomi, index=4) 
     mese_scelto = mesi_nomi.index(mese_testo) + 1
     
-    # CORREZIONE: Abbiamo rimosso il calcolo da qui perché le funzioni non sono ancora state definite.
-    # La metrica verrà visualizzata in fondo alla sidebar tramite il comando st.sidebar.metric 
-    # posizionato dopo il Punto 2.
-
-  # --- FINE INPUT SIDEBAR ---
-    # Nota: Il calcolo del debito orario è stato spostato nel Mainframe
-    # subito dopo la definizione della funzione calcola_festivi per evitare NameError.
-    
     st.divider()
+
+    # --- NUOVA SEZIONE: DESIDERATA E FERIE ---
+    st.header("🚫 Desiderata e Ferie")
+    st.caption("Tipi: Ferie, Corso, No Diurno, No Notte, No Tutto il Giorno")
+    st.caption("Es: Sapia: Ferie 5, No Notte 10; Brancaleoni: Corso 12")
+    testo_desiderata = st.text_area("Inserisci Desiderata (separa i medici con ';')", value="")
+    
+    # Parsing dei desiderata in un dizionario { Nome: [{"tipo": tipo, "giorno": giorno}] }
+    desiderata_map = {}
+    if testo_desiderata:
+        # Dividiamo per medico usando il punto e virgola
+        for riga in testo_desiderata.split(";"):
+            if ":" in riga:
+                med, istruzioni = riga.split(":")
+                med_nome = med.strip()
+                desiderata_map[med_nome] = []
+                # Dividiamo le istruzioni del singolo medico usando la virgola
+                for istruzione in istruzioni.split(","):
+                    parti = istruzione.strip().split()
+                    if len(parti) >= 2:
+                        # Il tipo può essere composto da più parole (es. "No Diurno")
+                        tipo = " ".join(parti[:-1]).lower().strip()
+                        try:
+                            giorno = int(parti[-1])
+                            desiderata_map[med_nome].append({"tipo": tipo, "giorno": giorno})
+                        except ValueError:
+                            pass
+
+    st.divider()
+# --- FINE INPUT SIDEBAR ---
 # --- 2. LOGICA FESTIVITÀ (CONGELATO) ---
 def calcola_festivi(year, month):
     fisse = [(1, 1), (1, 6), (4, 25), (5, 1), (6, 2), (8, 15), (11, 1), (12, 8), (12, 25), (12, 26)]
@@ -133,7 +155,7 @@ df_editabile = st.data_editor(
 
 st.session_state[key_stato] = df_editabile
 
-# --- 4. VERIFICA VINCOLI (Punto 6a & 6b + Integrazione Settimanale/PA) ---
+# --- 4. VERIFICA VINCOLI (Punto 6a & 6b + Settimanale/PA + Desiderata Avanzati) ---
 st.divider()
 st.subheader("🛡️ Controllo Vincoli e Sicurezza")
 
@@ -150,6 +172,19 @@ ore_pa_mese = {nome: 0 for nome in strutturati}
 
 for index, row in df_editabile.iterrows():
     giorno_corrente = index + 1
+    dt_corrente = datetime(anno, mese_scelto, giorno_corrente).date()
+    
+    # Identificazione giorni feriali per accredito Ferie/Corso
+    # (Lunedì-Venerdì e NON festivi)
+    is_feriale = dt_corrente.weekday() < 5 and dt_corrente not in festivi_italiani
+    
+    # --- LOGICA ACCREDITO ORE DESIDERATA (FERIE/CORSO) ---
+    for med, lista_des in desiderata_map.items():
+        if med in strutturati and is_feriale:
+            for d in lista_des:
+                if d["giorno"] == giorno_corrente and d["tipo"] in ["ferie", "corso"]:
+                    ore_contrattuali_mese[med] += 7.6
+
     nomi_giorno = {
         "MeCAU 1": row["MeCAU 1"], "MeCAU 2": row["MeCAU 2"],
         "MeCAU Notte": row["MeCAU Notte"], "Bassa Intensità": row["Bassa Intensità"]
@@ -162,15 +197,32 @@ for index, row in df_editabile.iterrows():
             is_pa = " PA" in n
             lavoro_oggi.append({"nome": nome_pulito, "sala": sala, "is_pa": is_pa})
 
-    # --- [FASE 2] LOGICA SETTIMANALE E CONTEGGIO ORE (DENTRO IL CICLO) ---
+    # --- [FASE 2] LOGICA SETTIMANALE, ORE E VINCOLI (DENTRO IL CICLO) ---
     for medico in lavoro_oggi:
         m_nome = medico["nome"]
         m_sala = medico["sala"]
         
+        # 1. VINCOLO DESIDERATA (Per tutti i medici se presenti in mappa)
+        if m_nome in desiderata_map:
+            for d in desiderata_map[m_nome]:
+                if d["giorno"] == giorno_corrente:
+                    tipo = d["tipo"]
+                    conflitto = False
+                    
+                    if tipo in ["ferie", "corso", "no tutto il giorno", "no giorno"]:
+                        conflitto = True
+                    elif tipo == "no diurno" and m_sala in ["MeCAU 1", "MeCAU 2", "Bassa Intensità"]:
+                        conflitto = True
+                    elif tipo == "no notte" and m_sala == "MeCAU Notte":
+                        conflitto = True
+                    
+                    if conflitto:
+                        errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} ha un vincolo '{tipo.upper()}'!")
+
+        # 2. REGOLE SPECIFICHE STRUTTURATI
         if m_nome in strutturati:
             # Identificazione settimana (ISO calendar)
-            giorno_dt = datetime(anno, mese_scelto, giorno_corrente).date()
-            sett_n = giorno_dt.isocalendar()[1]
+            sett_n = dt_corrente.isocalendar()[1]
             
             # Conteggio turni per settimana
             if sett_n not in conteggio_settimanale[m_nome]:
@@ -183,10 +235,11 @@ for index, row in df_editabile.iterrows():
             else:
                 ore_contrattuali_mese[m_nome] += 12
 
-            # --- VINCOLI PREESISTENTI (SMONTO/RIPOSO/BASSA INTENSITÀ) ---
+            # Vincolo Bassa Intensità
             if m_sala == "Bassa Intensità":
                 errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} (Strutturato) non può stare in Bassa Intensità!")
 
+            # Controllo Riposo (X+1 e X+2) - Ignorato se PA
             if not medico["is_pa"]:
                 if m_nome in notti_temp:
                     distanza = giorno_corrente - notti_temp[m_nome]
@@ -196,6 +249,7 @@ for index, row in df_editabile.iterrows():
                         avvisi_carenza.append(f"🟡 **{row['Giorno']}**: {m_nome} in deroga al riposo (X+2).")
                         notti_temp[m_nome] = giorno_corrente - 1
 
+            # Registrazione notte (Solo se non PA)
             if m_sala == "MeCAU Notte" and not medico["is_pa"]:
                 notti_temp[m_nome] = giorno_corrente
 
@@ -208,13 +262,11 @@ for index, row in df_editabile.iterrows():
 # --- [FASE 3] ANALISI SETTIMANALE E SIDEBAR (FUORI DAL CICLO) ---
 for medico, settimane in conteggio_settimanale.items():
     for sett, n_turni in settimane.items():
-        # Limite esteso a 5 se il medico ha turni PA nel mese
+        # Limite esteso a 5 se il medico ha fatto almeno un turno PA nel mese
         limite_max = 5 if ore_pa_mese[medico] > 0 else 4
         
-        if n_turni > 5:
-            errori_rilevati.append(f"🚨 **Settimana {sett}**: {medico} ha superato il limite massimo assoluto ({n_turni} turni)!")
-        elif n_turni > 4 and ore_pa_mese[medico] == 0:
-            errori_rilevati.append(f"🚨 **Settimana {sett}**: {medico} ha {n_turni} turni senza PA. Max consentito: 4.")
+        if n_turni > limite_max:
+            errori_rilevati.append(f"🚨 **Settimana {sett}**: {medico} ha troppi turni ({n_turni}). Max: {limite_max}")
         elif n_turni < 3 and n_turni > 0:
             avvisi_carenza.append(f"🔵 **Settimana {sett}**: {medico} ha solo {n_turni} turni. Minimo richiesto: 3.")
 
@@ -228,7 +280,7 @@ for medico in strutturati:
     colore = "green" if delta >= 0 else "orange"
     
     st.sidebar.markdown(f"**{medico}**")
-    st.sidebar.write(f"Contrattuali: {fatte} / {ore_dovute_calcolate}h (:{colore}[{delta:+.1f}h])")
+    st.sidebar.write(f"Contrattuali: {fatte:.1f} / {ore_dovute_calcolate}h (:{colore}[{delta:+.1f}h])")
     if pa > 0:
         st.sidebar.write(f"✨ Ore in PA: **{pa} h**")
 
