@@ -177,7 +177,9 @@ notti_temp = {}
 
 # --- [FASE 1] INIZIALIZZAZIONE CONTATORI ---
 conteggio_settimanale = {nome: {} for nome in strutturati}
-conteggio_notti_mensili = {nome: 0 for nome in strutturati} # Contatore notti contrattuali
+conteggio_notti_mensili = {nome: 0 for nome in strutturati}
+# NUOVO: Tracciamento dei weekend lavorati (usiamo un set per non contare due volte lo stesso weekend)
+weekend_lavorati = {nome: set() for nome in strutturati} 
 ore_contrattuali_mese = {nome: 0 for nome in strutturati}
 ore_pa_mese = {nome: 0 for nome in strutturati}
 
@@ -186,6 +188,14 @@ for index, row in df_editabile.iterrows():
     dt_corrente = datetime(anno, mese_scelto, giorno_corrente).date()
     
     is_feriale = dt_corrente.weekday() < 5 and dt_corrente not in festivi_italiani
+    is_weekend = dt_corrente.weekday() >= 5 # Sabato=5, Domenica=6
+    
+    # Identificazione numero del weekend (per raggruppare Sabato e Domenica nello stesso blocco)
+    # Usiamo l'anno e la settimana ISO. Se è domenica, appartiene al weekend del sabato precedente.
+    if dt_corrente.weekday() == 6: # Domenica
+        id_weekend = (dt_corrente - timedelta(days=1)).strftime("%Y-%U")
+    else:
+        id_weekend = dt_corrente.strftime("%Y-%U")
     
     # --- LOGICA ACCREDITO ORE DESIDERATA (FERIE/CORSO) ---
     for med, lista_des in desiderata_map.items():
@@ -211,7 +221,7 @@ for index, row in df_editabile.iterrows():
         m_nome = medico["nome"]
         m_sala = medico["sala"]
         
-        # 1. VINCOLO DESIDERATA (Invariato)
+        # 1. VINCOLO DESIDERATA
         if m_nome in desiderata_map:
             for d in desiderata_map[m_nome]:
                 if d["giorno"] == giorno_corrente:
@@ -237,6 +247,9 @@ for index, row in df_editabile.iterrows():
                 ore_pa_mese[m_nome] += 12
             else:
                 ore_contrattuali_mese[m_nome] += 12
+                # NUOVO: Registrazione weekend lavorato (se non è PA)
+                if is_weekend:
+                    weekend_lavorati[m_nome].add(id_weekend)
 
             if m_sala == "Bassa Intensità":
                 errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} (Strutturato) non può stare in Bassa Intensità!")
@@ -250,18 +263,24 @@ for index, row in df_editabile.iterrows():
                     elif distanza == 2:
                         avvisi_carenza.append(f"🟡 **{row['Giorno']}**: {m_nome} in deroga al riposo (X+2).")
                 
-                # Registrazione notte e incremento contatore (Esclude PA)
                 if m_sala == "MeCAU Notte":
                     notti_temp[m_nome] = giorno_corrente
                     conteggio_notti_mensili[m_nome] += 1 
 
-    # VINCOLO 6a: UNICITÀ GIORNALIERA (Invariato)
+    # VINCOLO 6a: UNICITÀ GIORNALIERA
     nomi_soli = [d["nome"] for d in lavoro_oggi]
     if len(nomi_soli) != len(set(nomi_soli)):
         duplicati = set([x for x in nomi_soli if nomi_soli.count(x) > 1])
         errori_rilevati.append(f"🔴 **{row['Giorno']}**: {', '.join(duplicati)} duplicato nello stesso giorno!")
 
 # --- [FASE 3] ANALISI MENSILE E SIDEBAR ---
+
+# NUOVO: Controllo Limite 2 Weekend
+for medico, lista_wk in weekend_lavorati.items():
+    n_wk = len(lista_wk)
+    if n_wk > 2:
+        errori_rilevati.append(f"🚨 **Limite Weekend**: {medico} ha lavorato {n_wk} weekend (Max: 2)!")
+
 for medico, n_notti in conteggio_notti_mensili.items():
     if n_notti > 4:
         errori_rilevati.append(f"🚨 **Limite Notti**: {medico} ha troppe notti contrattuali ({n_notti}/4)!")
