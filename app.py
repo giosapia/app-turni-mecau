@@ -480,6 +480,35 @@ try:
 except Exception as e:
     st.error(f"Errore nella generazione del PDF: {e}")
 
+# --- NUOVA FUNZIONE: RESET SELETTIVO ---
+def reset_solo_strutturati():
+    if key_stato in st.session_state:
+        df_reset = st.session_state[key_stato].copy()
+        colonne_da_pulire = ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]
+        
+        # Creiamo una lista di nomi da rimuovere (sia standard che " PA")
+        nomi_da_rimuovere = strutturati + [f"{s} PA" for s in strutturati]
+        
+        for col in colonne_da_pulire:
+            # Sostituiamo con stringa vuota solo se il nome è tra gli strutturati
+            df_reset[col] = df_reset[col].apply(lambda x: "" if x in nomi_da_rimuovere else x)
+        
+        st.session_state[key_stato] = df_reset
+        st.rerun()
+
+# --- AGGIORNAMENTO LAYOUT PULSANTI ---
+st.divider()
+st.info("💡 **Suggerimento**: Inserisci prima i turni fissi, poi usa la generazione. Se il risultato non ti soddisfa, usa 'Svuota Strutturati' e riprova.")
+
+col_btn1, col_btn2 = st.columns(2)
+with col_btn1:
+    if st.button("🗑️ Svuota Solo Strutturati", use_container_width=True):
+        reset_solo_strutturati()
+
+with col_btn2:
+    if st.button("🤖 Genera Automatica", use_container_width=True, type="primary"):
+        genera_turni_automatici()
+
 # --- 6. PULSANTE DI GENERAZIONE AUTOMATICA (POSIZIONE FINALE) ---
 st.divider()
 st.info("💡 **Suggerimento**: Inserisci prima i turni fissi o le preferenze a mano nella tabella sopra, poi usa il tasto qui sotto per completare i turni mancanti dei medici strutturati.")
