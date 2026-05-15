@@ -90,16 +90,18 @@ df_editabile = st.data_editor(
 # Salvataggio immediato per permettere il controllo dei vincoli
 st.session_state[key_stato] = df_editabile
 
-# --- 4. VERIFICA VINCOLI (Punto 6a) ---
+# --- 4. VERIFICA VINCOLI (Punto 6a - CORRETTO) ---
 st.divider()
 st.subheader("🛡️ Controllo Vincoli e Sicurezza")
 
 errori_rilevati = []
 
 for index, row in df_editabile.iterrows():
-    # Estraiamo i nomi inseriti nella riga (escludendo stringhe vuote)
+    # Estraiamo i nomi inseriti nella riga
     nomi_giorno = [row["MeCAU 1"], row["MeCAU 2"], row["MeCAU Notte"], row["Bassa Intensità"]]
-    nomi_inseriti = [n for n in nomi_giorno if n and n.strip() != ""]
+    
+    # MODIFICA: Controllo robusto per evitare AttributeError su valori None (cancellati)
+    nomi_inseriti = [n for n in nomi_giorno if n is not None and isinstance(n, str) and n.strip() != ""]
     
     # Controlliamo se ci sono duplicati
     if len(nomi_inseriti) != len(set(nomi_inseriti)):
