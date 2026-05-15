@@ -32,27 +32,11 @@ with st.sidebar:
     # La metrica verrà visualizzata in fondo alla sidebar tramite il comando st.sidebar.metric 
     # posizionato dopo il Punto 2.
 
-    # --- NUOVO: CALCOLO DEBITO ORARIO ---
-    def conta_feriali(year, month, festivi):
-        giorni_nel_mese = calendar.monthrange(year, month)[1]
-        feriali = 0
-        for d in range(1, giorni_nel_mese + 1):
-            dt = datetime(year, month, d).date()
-            # Un giorno è feriale se: 
-            # 1. Non è Sabato (5) o Domenica (6)
-            # 2. Non è tra i festivi nazionali/patronali
-            if dt.weekday() < 5 and dt not in festivi:
-                feriali += 1
-        return feriali
-
-    # Calcoliamo i festivi necessari per il conteggio dei feriali
-    giorni_feriali = conta_feriali(anno, mese_scelto, festivi_per_conteggio)
-    ore_dovute = round(giorni_feriali * 7.6, 1)
-
+  # --- FINE INPUT SIDEBAR ---
+    # Nota: Il calcolo del debito orario è stato spostato nel Mainframe
+    # subito dopo la definizione della funzione calcola_festivi per evitare NameError.
+    
     st.divider()
-    st.sidebar.metric(label="📊 Debito Orario Mensile", value=f"{ore_dovute} h")
-    st.sidebar.caption(f"Basato su {giorni_feriali} giorni feriali (7.6h/gg)")
-
 # --- 2. LOGICA FESTIVITÀ (CONGELATO) ---
 def calcola_festivi(year, month):
     fisse = [(1, 1), (1, 6), (4, 25), (5, 1), (6, 2), (8, 15), (11, 1), (12, 8), (12, 25), (12, 26)]
@@ -75,27 +59,25 @@ def calcola_festivi(year, month):
     return festivi
 
 festivi_italiani = calcola_festivi(anno, mese_scelto)
-# --- LOGICA CALCOLO ORE (Correzione e Test Superato) ---
+# --- LOGICA CALCOLO ORE (Sostituisce il vecchio blocco sidebar) ---
 
-# Definiamo la funzione di conteggio
 def conta_feriali(year, month, lista_festivi):
     giorni_nel_mese = calendar.monthrange(year, month)[1]
     feriali = 0
     for d in range(1, giorni_nel_mese + 1):
         dt = datetime(year, month, d).date()
-        # Controllo: non deve essere sabato (5), né domenica (6), né un giorno festivo
+        # Un giorno è feriale se non è weekend e non è festivo
         if dt.weekday() < 5 and dt not in lista_festivi:
             feriali += 1
     return feriali
 
-# Eseguiamo il calcolo usando i festivi appena generati
-giorni_feriali_count = conta_feriali(anno, mese_scelto, festivi_italiani)
-ore_dovute_totali = round(giorni_feriali_count * 7.6, 1)
+# Usiamo 'festivi_italiani' che è la variabile corretta definita appena sopra
+giorni_f = conta_feriali(anno, mese_scelto, festivi_italiani)
+ore_dovute_calcolate = round(giorni_f * 7.6, 1)
 
-# Visualizziamo i risultati nella sidebar esistente
-st.sidebar.divider()
-st.sidebar.metric(label="📊 Debito Orario Mensile", value=f"{ore_dovute_totali} h")
-st.sidebar.caption(f"Basato su {giorni_feriali_count} giorni feriali (7.6h/gg)")
+# Visualizzazione "iniettata" nella Sidebar
+st.sidebar.metric(label="📊 Debito Orario Mensile", value=f"{ore_dovute_calcolate} h")
+st.sidebar.caption(f"Basato su {giorni_f} giorni feriali (7.6h/gg)")
 
 # --- FINE LOGICA ORE ---
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
