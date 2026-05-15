@@ -73,7 +73,24 @@ def calcola_festivi(year, month):
     return festivi
 
 festivi_italiani = calcola_festivi(anno, mese_scelto)
+# --- LOGICA CALCOLO ORE ---
+def conta_feriali(year, month, festivi):
+    giorni_nel_mese = calendar.monthrange(year, month)[1]
+    feriali = 0
+    for d in range(1, giorni_nel_mese + 1):
+        dt = datetime(year, month, d).date()
+        # Non Sabato (5), non Domenica (6) e non festivo nazionale/patronale
+        if dt.weekday() < 5 and dt not in festivi:
+            feriali += 1
+    return feriali
 
+giorni_feriali = conta_feriali(anno, mese_scelto, festivi_italiani)
+ore_dovute = round(giorni_feriali * 7.6, 1)
+
+# Visualizzazione nella sidebar (verrà aggiunta in fondo alla colonna sinistra)
+st.sidebar.divider()
+st.sidebar.metric(label="📊 Debito Orario Mensile", value=f"{ore_dovute} h")
+st.sidebar.caption(f"Basato su {giorni_feriali} giorni feriali (7.6h/gg)")
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
 
 # --- 3. LAYOUT GRAFICO E GRIGLIA ---
