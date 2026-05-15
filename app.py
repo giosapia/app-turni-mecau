@@ -309,36 +309,31 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
     # Creazione di un buffer di memoria per il file
     buffer = io.BytesIO()
     
-    # Configurazione documento: A4 Orizzontale (Landscape)
+   # Margini del foglio ridotti a 15pt per sfruttare ogni millimetro
     doc = SimpleDocTemplate(
         buffer, 
         pagesize=landscape(A4),
-        rightMargin=20, 
-        leftMargin=20, 
-        topMargin=20, 
-        bottomMargin=20
+        rightMargin=15, 
+        leftMargin=15, 
+        topMargin=15, 
+        bottomMargin=15
     )
     
     elementi = []
     styles = getSampleStyleSheet()
     
-    # Titolo del documento
-    titolo = f"Programmazione Turni MeCAU Susa - {mese_nome} {anno_scelto}"
-    elementi.append(Paragraph(titolo, styles['Title']))
-    elementi.append(Spacer(1, 12)) # Spazio tra titolo e tabella
-
-    # Conversione del DataFrame in una lista di liste per ReportLab
-    # Prendiamo le intestazioni e tutti i dati
-    dati_per_tabella = [df.columns.tolist()]
-    for riga in df.values.tolist():
-        dati_per_tabella.append(riga)
-
-  # ... (parte iniziale della funzione invariata fino a stile)
-
-   # Definizione larghezza colonne
-    tabella = Table(dati_per_tabella, colWidths=[65, 185, 185, 185, 185])
+    # Riduzione font del Titolo (da 'Title' standard a 14pt) e dello Spacer
+    stile_titolo = styles['Title']
+    stile_titolo.fontSize = 14
     
-    # Stile della tabella - TENTATIVO 2: Helvetica 8.5pt + Padding minimo
+    titolo = f"Programmazione Turni MeCAU Susa - {mese_nome} {anno_scelto}"
+    elementi.append(Paragraph(titolo, stile_titolo))
+    elementi.append(Spacer(1, 6)) # Spazio ridotto da 12 a 6 punti
+
+    # Definizione larghezza colonne
+    tabella = Table(dati_per_tabella, colWidths=[60, 185, 185, 185, 185])
+    
+    # Stile della tabella - TENTATIVO 3: Helvetica 8pt + Padding ultra-compatto
     stile = TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -346,12 +341,12 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8.5),                # Dimensione ridotta a 8.5pt
+        ('FONTSIZE', (0, 0), (-1, -1), 8),                # Ridotto a 8pt (standard professionale per tabelle dense)
         ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
         
-        # PADDING MINIMO: Ridotto a 2.5 per stringere le righe
-        ('TOPPADDING', (0, 0), (-1, -1), 2.5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2.5),
+        # PADDING ULTRA-COMPATTO: Ridotto a 1.8
+        ('TOPPADDING', (0, 0), (-1, -1), 1.8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.8),
     ])
     
     # ... (resto della funzione con i colori festivi invariato)
