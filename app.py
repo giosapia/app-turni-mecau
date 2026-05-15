@@ -106,7 +106,13 @@ if key_stato not in st.session_state:
         })
     st.session_state[key_stato] = pd.DataFrame(data)
 
-medici_mecau = [""] + strutturati + jolly
+# --- 3. AGGIORNAMENTO LISTE PER PA ---
+opzioni_strutturati_pa = []
+for s in strutturati:
+    opzioni_strutturati_pa.append(s)          # Nome standard per monte ore
+    opzioni_strutturati_pa.append(f"{s} PA") # Variante per libera professione
+
+medici_mecau = [""] + opzioni_strutturati_pa + jolly
 medici_bassa = [""] + gettonisti
 
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
