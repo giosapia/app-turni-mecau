@@ -322,9 +322,9 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
     elementi = []
     styles = getSampleStyleSheet()
     
+    # Configurazione Titolo
     stile_titolo = styles['Title']
     stile_titolo.fontSize = 14
-    
     titolo = f"Programmazione Turni MeCAU Susa - {mese_nome} {anno_scelto}"
     elementi.append(Paragraph(titolo, stile_titolo))
     elementi.append(Spacer(1, 6))
@@ -335,7 +335,7 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
     # Definizione larghezza colonne
     tabella = Table(dati_per_tabella, colWidths=[60, 185, 185, 185, 185])
     
-    # Stile della tabella - Helvetica 8pt + Padding ultra-compatto
+    # Stile della tabella
     stile = TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -349,17 +349,13 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
         ('BOTTOMPADDING', (0, 0), (-1, -1), 1.8),
     ])
     
-    # Colorazione righe: Sabati, Domeniche e Festivi
+    # Colorazione righe: Weekend e Festivi in GIALLO
     for i, riga in enumerate(dati_per_tabella[1:], start=1):
         giorno_str = str(riga[0]).lower()
         
-        # DOMENICHE E FESTIVI (Rosa)
-        if "🔴" in giorno_str or "dom" in giorno_str:
-            stile.add('BACKGROUND', (0, i), (-1, i), colors.lightpink)
-        
-        # SABATI (Grigio chiaro per distinguerli)
-        elif "sab" in giorno_str:
-            stile.add('BACKGROUND', (0, i), (-1, i), colors.whitesmoke)
+        # Evidenziazione in giallo per sabato, domenica e festivi (🔴)
+        if "🔴" in giorno_str or "dom" in giorno_str or "sab" in giorno_str:
+            stile.add('BACKGROUND', (0, i), (-1, i), colors.yellow)
 
     tabella.setStyle(stile)
     elementi.append(tabella)
