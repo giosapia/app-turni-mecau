@@ -50,52 +50,65 @@ def calcola_festivi(year, month):
 
 festivi_italiani = calcola_festivi(anno, mese_scelto)
 
-# --- 3. LAYOUT GRAFICO CON SEGNAPOSTO COLORATO ---
+# --- 3. LAYOUT GRAFICO ---
+key_stato = f"griglia_{mese_scelto}_{anno}_final"
 
-if 'griglia' not in st.session_state or st.session_state.get('key_mese') != f"{mese_scelto}-{anno}":
+if key_stato not in st.session_state:
     num_days = calendar.monthrange(anno, mese_scelto)[1]
     ita_giorni = ["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"]
-    
     data = []
     for d in range(1, num_days + 1):
         dt = datetime(anno, mese_scelto, d).date()
-        
-        # Determina il simbolo colorato
-        prefix = "⚪" # Feriale
-        if dt in festivi_italiani:
-            prefix = "🔴" # Festivo
-        elif dt.weekday() >= 5:
-            prefix = "🟡" # Weekend
-            
+        if dt in festivi_italiani: pref = "🔴"
+        elif dt.weekday() >= 5: pref = "🟡"
+        else: pref = "⚪"
         data.append({
-            "Giorno": f"{prefix} {d} {ita_giorni[dt.weekday()]}",
-            "MeCAU 1": "",
-            "MeCAU 2": "",
-            "MeCAU Notte": "",
-            "Bassa Intensità": ""
+            "Giorno": f"{pref} {d} {ita_giorni[dt.weekday()]}",
+            "MeCAU 1": "", "MeCAU 2": "", "MeCAU Notte": "", "Bassa Intensità": ""
         })
-    st.session_state.griglia = pd.DataFrame(data)
-    st.session_state.key_mese = f"{mese_scelto}-{anno}"
+    st.session_state[key_stato] = pd.DataFrame(data)
 
 medici_mecau = [""] + strutturati + jolly
 medici_bassa = [""] + gettonisti
 
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
 
-# EDITOR GRAFICO (Senza Styler per massima compatibilità)
 df_editabile = st.data_editor(
-    st.session_state.griglia,
+    st.session_state[key_stato],
     column_config={
-        "Giorno": st.column_config.TextColumn("Data", disabled=True, width="medium"),
-        "MeCAU 1": st.column_config.SelectboxColumn("MeCAU 1", options=medici_mecau, width="medium"),
-        "MeCAU 2": st.column_config.SelectboxColumn("MeCAU 2", options=medici_mecau, width="medium"),
-        "MeCAU Notte": st.column_config.SelectboxColumn("MeCAU Notte", options=medici_mecau, width="medium"),
-        "Bassa Intensità": st.column_config.SelectboxColumn("Bassa Intensità", options=medici_bassa, width="medium")
+        "Giorno": st.column_config.TextColumn("Data", disabled=True),
+        "MeCAU 1": st.column_config.SelectboxColumn("MeCAU 1", options=medici_mecau),
+        "MeCAU 2": st.column_config.SelectboxColumn("MeCAU 2", options=medici_mecau),
+        "MeCAU Notte": st.column_config.SelectboxColumn("MeCAU Notte", options=medici_mecau),
+        "Bassa Intensità": st.column_config.SelectboxColumn("Bassa Intensità", options=medici_bassa)
     },
     hide_index=True,
     use_container_width=True,
     key="main_editor"
 )
 
-# Salvataggio
-st.session_state.griglia = df_editabile
+# Salvataggio immediato per permettere il controllo dei vincoli
+st.session_state[key_stato] = df_editabile
+
+# --- 4. VERIFICA VINCOLI (Punto 6a) ---
+st.divider()
+st.subheader("🛡️ Controllo Vincoli e Sicurezza")
+
+errori_rilevati = []
+
+for index, row in df_editabile.iterrows():
+    # Estraiamo i nomi inseriti nella riga (escludendo stringhe vuote)
+    nomi_giorno = [row["MeCAU 1"], row["MeCAU 2"], row["MeCAU Notte"], row["Bassa Intensità"]]
+    nomi_inseriti = [n for n in nomi_giorno if n and n.strip() != ""]
+    
+    # Controlliamo se ci sono duplicati
+    if len(nomi_inseriti) != len(set(nomi_inseriti)):
+        # Identifichiamo quale medico è duplicato
+        duplicati = set([x for x in nomi_inseriti if nomi_inseriti.count(x) > 1])
+        errori_rilevati.append(f"**{row['Giorno']}**: {', '.join(duplicati)} è inserito in più sale!")
+
+if errori_rilevati:
+    for err in errori_rilevati:
+        st.error(err)
+else:
+    st.success("✅ Nessuna sovrapposizione rilevata per questo mese.")
