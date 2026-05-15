@@ -149,6 +149,8 @@ medici_bassa = [""] + gettonisti
 
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
 
+# --- LOGICA DI GESTIONE TABELLA CORRETTA ---
+
 df_editabile = st.data_editor(
     st.session_state[key_stato],
     column_config={
@@ -160,10 +162,14 @@ df_editabile = st.data_editor(
     },
     hide_index=True,
     use_container_width=True,
-    key="main_editor"
+    key="main_editor" # Manteniamo questa chiave fissa
 )
 
-st.session_state[key_stato] = df_editabile
+# Sincronizzazione immediata: questo garantisce che al prossimo 'rerun' 
+# lo stato sia già aggiornato al primo colpo.
+if not df_editabile.equals(st.session_state[key_stato]):
+    st.session_state[key_stato] = df_editabile
+    st.rerun()
 
 # --- 4. VERIFICA VINCOLI (Punto 6a & 6b + Settimanale/PA + Desiderata Avanzati) ---
 st.divider()
