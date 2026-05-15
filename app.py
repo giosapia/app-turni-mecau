@@ -300,3 +300,78 @@ if errori_rilevati or avvisi_carenza:
     for warn in avvisi_carenza: st.warning(warn)
 else:
     st.success("✅ Vincoli di sicurezza rispettati.")
+# --- 5. FUNZIONE GENERAZIONE PDF E PULSANTE ---
+st.divider()
+st.subheader("🖨️ Esportazione")
+
+def genera_pdf_mecau(df, mese_nome, anno_scelto):
+    # Creazione di un buffer di memoria per il file
+    buffer = io.BytesIO()
+    
+    # Configurazione documento: A4 Orizzontale (Landscape)
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=landscape(A4),
+        rightMargin=30, 
+        leftMargin=30, 
+        topMargin=30, 
+        bottomMargin=30
+    )
+    
+    elementi = []
+    styles = getSampleStyleSheet()
+    
+    # Titolo del documento
+    titolo = f"Programmazione Turni MeCAU Susa - {mese_nome} {anno_scelto}"
+    elementi.append(Paragraph(titolo, styles['Title']))
+    elementi.append(Spacer(1, 12)) # Spazio tra titolo e tabella
+
+    # Conversione del DataFrame in una lista di liste per ReportLab
+    # Prendiamo le intestazioni e tutti i dati
+    dati_per_tabella = [df.columns.tolist()]
+    for riga in df.values.tolist():
+        dati_per_tabella.append(riga)
+
+    # Definizione larghezza colonne (totale circa 780 punti per A4 Landscape)
+    # Giorno: 70pt, Le 4 colonne medici: 175pt l'una
+    tabella = Table(dati_per_tabella, colWidths=[70, 175, 175, 175, 175])
+    
+    # Stile della tabella
+    stile = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),         # Intestazione grigia
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),     # Testo bianco in intestazione
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),                 # Tutto centrato
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),               # Centratura verticale
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),       # Intestazione in grassetto
+        ('FONTSIZE', (0, 0), (-1, -1), 8),                     # Font leggermente ridotto per A4
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),         # Griglia nera sottile
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+    ])
+    
+    # Colorazione righe festivi/domeniche
+    for i, riga in enumerate(dati_per_tabella[1:], start=1):
+        giorno_str = str(riga[0])
+        # Se nel testo del giorno c'è il pallino rosso o "dom" (domenica)
+        if "🔴" in giorno_str or "dom" in giorno_str.lower():
+            stile.add('BACKGROUND', (0, i), (-1, i), colors.lightpink)
+
+    tabella.setStyle(stile)
+    elementi.append(tabella)
+    
+    # Costruzione finale del PDF
+    doc.build(elementi)
+    buffer.seek(0)
+    return buffer
+
+# Creazione effettiva del file pronto al download
+try:
+    file_pdf = genera_pdf_mecau(df_editabile, mese_testo, anno)
+    
+    st.download_button(
+        label="📥 Scarica Turni in PDF",
+        data=file_pdf,
+        file_name=f"Turni_MeCAU_Susa_{mese_testo}_{anno}.pdf",
+        mime="application/pdf",
+    )
+except Exception as e:
+    st.error(f"Errore nella generazione del PDF: {e}")
