@@ -167,7 +167,7 @@ def genera_turni_automatici():
     df_lavoro = st.session_state[key_stato].copy()
     colonne_auto = ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]
     
-    # Mischiamo i medici per garantire un'equa rotazione di partenza
+    # Mischiamo i medici per rotazione equa
     medici_random = strutturati.copy()
     random.shuffle(medici_random)
 
@@ -175,82 +175,108 @@ def genera_turni_automatici():
         giorno_corrente = i + 1
         dt_corrente = datetime(anno, mese_scelto, giorno_corrente).date()
         
-        # Identificazione ID Weekend (Stessa identica logica del Punto 4)
-        if dt_corrente.weekday() == 6: # Domenica
-            id_wk_corrente = (dt_corrente - timedelta(days=1)).strftime("%Y-%U")
-        else:
-            id_wk_corrente = dt_corrente.strftime("%Y-%U")
-            
-        sett_corrente = dt_corrente.isocalendar()[1]
-
         for col in colonne_auto:
-            # Procediamo all'assegnazione solo se la cella è vuota
+            # Procediamo solo se la cella è vuota
             if df_lavoro.at[i, col] == "":
                 for med in medici_random:
                     
-                    # --- FILTRO 1: DESIDERATA ---
-                    skip = False
-                    if med in desiderata_map:
-                        for d in desiderata_map[med]:
-                            if d["giorno"] == giorno_corrente:
-                                t = d["tipo"]
-                                if t in ["ferie", "corso", "no tutto il giorno", "no giorno"]: skip = True
-                                elif t == "no diurno" and col in ["MeCAU 1", "MeCAU 2"]: skip = True
-                                elif t == "no notte" and col == "MeCAU Notte": skip = True
-                    if skip: continue
-
-                    # --- FILTRO 2: SMONTO NOTTE (X+1) ---
-                    if i > 0:
-                        if df_lavoro.at[i-1, "MeCAU Notte"] == med:
-                            continue
-
-                    # --- FILTRO 3: ANTI-DUPLICATO (Nello stesso giorno) ---
-                    if (df_lavoro.iloc[i][colonne_auto] == med).any():
-                        continue
-
-                    # --- FILTRO 4: LIMITE TURNI SETTIMANALI SOLARI (MAX 4) ---
-                    # Sincronizzato sul calcolo ISO-calendar del Punto 4
-                    turni_questa_settimana = 0
-                    for d_idx in range(len(df_lavoro)):
-                        dt_controllo = datetime(anno, mese_scelto, d_idx + 1).date()
-                        # Contiamo solo i turni della settimana solare corrente
-                        if dt_controllo.isocalendar()[1] == sett_corrente:
-                            # Verifichiamo se il medico è presente in una delle colonne dei turni
-                            if (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
-                                turni_questa_settimana += 1
-                    
-                    if turni_questa_settimana >= 4:
-                        continue # Salta questo medico, ha già raggiunto i 4 turni settimanali
-
-                    # --- FILTRO 5: LIMITE WEEKEND (MAX 2) ---
-                    if dt_corrente.weekday() >= 5:
-                        wk_lavorati = set()
-                        for d_idx in range(len(df_lavoro)):
-                            dt_temp = datetime(anno, mese_scelto, d_idx+1).date()
-                            if dt_temp.weekday() >= 5:
-                                if (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
-                                    if dt_temp.weekday() == 6:
-                                        id_w = (dt_temp - timedelta(days=1)).strftime("%Y-%U")
-                                    else:
-                                        id_w = dt_temp.strftime("%Y-%U")
-                                    wk_lavorati.add(id_w)
-                        
-                        if len(wk_lavorati) >= 2 and id_wk_corrente not in wk_lavorati:
-                            continue
-
-                    # --- FILTRO 6: LIMITE NOTTI MENSILI (MAX 4) ---
-                    if col == "MeCAU Notte":
-                        notti_fatte = (df_lavoro["MeCAU Notte"] == med).sum()
-                        if notti_fatte >= 4:
-                            continue
-
-                    # Se supera indenne tutti i blocchi del "Tetris", assegna il turno!
+                    # --- APPLICHIAMO IL NOME IN PROVA ---
                     df_lavoro.at[i, col] = med
-                    break
+                    
+                    # --- SIMULAZIONE CONTROLLO VINCOLI (Logica Punto 4) ---
+                    valido = True
+                    conteggio_sett_sim = {nome: {} for nome in strutturati}
+                    conteggio_notti_sim = {nome: 0 for nome in strutturati}
+                    wk_lavorati_sim = {nome: set() for nome in strutturati}
+                    notti_temp_sim = {}
+                    
+                    # Scansioniamo la griglia fino al giorno corrente per vedere se l'inserimento rompe qualcosa
+                    for idx_s in range(i + 1):
+                        g_s = idx_s + 1
+                        dt_s = datetime(anno, mese_scelto, g_s).date()
+                        is_feriale_s = dt_s.weekday() < 5 and dt_s not in festivi_italiani
+                        is_weekend_s = dt_s.weekday() >= 5
+                        
+                        if dt_s.weekday() == 6:
+                            id_wk_s = (dt_s - timedelta(days=1)).strftime("%Y-%U")
+                        else:
+                            id_wk_s = dt_s.strftime("%Y-%U")
+                            
+                        # Estrazione nomi della riga simulata
+                        nomi_giorno_s = [
+                            df_lavoro.at[idx_s, "MeCAU 1"],
+                            df_lavoro.at[idx_s, "MeCAU 2"],
+                            df_lavoro.at[idx_s, "MeCAU Notte"],
+                            df_lavoro.at[idx_s, "Bassa Intensità"]
+                        ]
+                        
+                        lavoro_oggi_s = []
+                        for n_s in nomi_giorno_s:
+                            if n_s and isinstance(n_s, str) and n_s.strip() != "":
+                                n_p = n_s.replace(" PA", "").strip()
+                                lavoro_oggi_s.append(n_p)
+                        
+                        # Controlliamo i duplicati nello stesso giorno
+                        if len(lavoro_oggi_s) != len(set(lavoro_oggi_s)):
+                            valido = False
+                            break
+                            
+                        # Analisi vincoli cumulativi per i medici strutturati
+                        for m_s in lavoro_oggi_s:
+                            if m_s in strutturati:
+                                # 1. Vincolo Settimanale Solare (Max 4)
+                                sett_s = dt_s.isocalendar()[1]
+                                if sett_s not in conteggio_sett_sim[m_s]:
+                                    conteggio_sett_sim[m_s][sett_s] = 0
+                                conteggio_sett_sim[m_s][sett_s] += 1
+                                if conteggio_sett_sim[m_s][sett_s] > 4:
+                                    valido = False
+                                    break
+                                    
+                                # 2. Vincolo Weekend (Max 2)
+                                if is_weekend_s:
+                                    wk_lavorati_sim[m_s].add(id_wk_s)
+                                    if len(wk_lavorati_sim[m_s]) > 2:
+                                        valido = False
+                                        break
+                                        
+                                # 3. Vincolo Notti (Max 4)
+                                if df_lavoro.at[idx_s, "MeCAU Notte"] == m_s:
+                                    conteggio_notti_sim[m_s] += 1
+                                    if conteggio_notti_sim[m_s] > 4:
+                                        valido = False
+                                        break
+                                        
+                                # 4. Smonto Notte (X+1)
+                                if df_lavoro.at[idx_s, "MeCAU Notte"] == m_s:
+                                    notti_temp_sim[m_s] = g_s
+                                elif m_s in notti_temp_sim and (g_s - notti_temp_sim[m_s]) == 1:
+                                    valido = False
+                                    break
+
+                        if not valido:
+                            break
+                            
+                        # --- CONTROLLO DESIDERATA DIRETTO ---
+                        if med in desiderata_map:
+                            for d in desiderata_map[med]:
+                                if d["giorno"] == giorno_corrente:
+                                    t = d["tipo"]
+                                    if t in ["ferie", "corso", "no tutto il giorno", "no giorno"]: valido = False
+                                    elif t == "no diurno" and col in ["MeCAU 1", "MeCAU 2"]: valido = False
+                                    elif t == "no notte" and col == "MeCAU Notte": valido = False
+                        if not valido:
+                            break
+
+                    # Se la simulazione fallisce, cancelliamo il nome "in prova" e testiamo il medico successivo
+                    if not valido:
+                        df_lavoro.at[i, col] = ""
+                    else:
+                        # Il turno è valido al 100% rispetto al Punto 4, lo confermiamo!
+                        break
 
     st.session_state[key_stato] = df_lavoro
     st.rerun()
-
 
 # --- 3. LAYOUT GRAFICO E GRIGLIA ---
 key_stato = f"griglia_{mese_scelto}_{anno}_v3_final"
