@@ -13,7 +13,7 @@ st.title("🏥 Calendario Turni MeCAU Susa")
 
 # --- 1. SIDEBAR: ANAGRAFICA E DESIDERATA (Aggiornato) ---
 with st.sidebar:
-    st.header("👥 Anagrafica Medici")
+    st.header("Anagrafica Medici")
     
     lista_strutturati = st.text_area("1. Medici Strutturati", value="Brancaleoni, Desiderio, Pazè, Sapia")
     strutturati = [s.strip() for s in lista_strutturati.split(",") if s.strip()]
