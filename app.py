@@ -261,7 +261,7 @@ if not df_editabile.equals(st.session_state[key_stato]):
     st.session_state[key_stato] = df_editabile
     st.rerun()
 
-# --- 4. VERIFICA VINCOLI (Versione Corretta) ---
+# --- 4. VERIFICA VINCOLI (Versione Corretta e Aggiornata) ---
 st.divider()
 st.subheader("🛡️ Controllo Vincoli e Sicurezza")
 
@@ -276,12 +276,19 @@ ore_contrattuali_mese = {nome: 0 for nome in strutturati}
 ore_pa_mese = {nome: 0 for nome in strutturati}
 notti_temp = {} 
 
+# Contatore di supporto per il calcolo del monte ore target del mese corrente
+giorni_feriali_totali = 0
+
 for index, row in df_editabile.iterrows():
     giorno_corrente = index + 1
     dt_corrente = datetime(anno, mese_scelto, giorno_corrente).date()
     
     is_feriale = dt_corrente.weekday() < 5 and dt_corrente not in festivi_italiani
     is_weekend = dt_corrente.weekday() >= 5 
+    
+    # Incrementiamo i feriali del mese per il calcolo dinamico del target orario
+    if is_feriale:
+        giorni_feriali_totali += 1
     
     if dt_corrente.weekday() == 6: # Domenica
         id_weekend = (dt_corrente - timedelta(days=1)).strftime("%Y-%U")
@@ -362,14 +369,14 @@ for medico, settimane in conteggio_settimanale.items():
         if n_turni > 4:
             errori_rilevati.append(f"🚨 **Settimana {sett}**: {medico} ha {n_turni} turni (Max: 4)!")
 
-# --- SALVATAGGIO ORE PER LA SIDEBAR ---
+# --- [FASE 4] SALVATAGGIO ORE DINAMICHE PER SIDEBAR ---
+monte_ore_mese = giorni_feriali_totali * 7.6
+
 st.session_state["ore_contrattuali_aggiornate"] = ore_contrattuali_mese
 st.session_state["ore_pa_aggiornate"] = ore_pa_mese
+st.session_state["monte_ore_dinamico"] = monte_ore_mese
 
-# Visualizzazione Errori (questo lo avevi già, lascialo sotto)
-if errori_rilevati or avvisi_carenza:
-# ... resto del codice invariato ...
-
+# --- [FASE 5] VISUALIZZAZIONE ERRORI ---
 if errori_rilevati or avvisi_carenza:
     for err in errori_rilevati: st.error(err)
     for warn in avvisi_carenza: st.warning(warn)
