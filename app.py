@@ -7,6 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+import random
 # Impostazioni pagina
 st.set_page_config(page_title="Gestione Medici Susa", layout="wide")
 st.title("🏥 Calendario Turni MeCAU Susa")
