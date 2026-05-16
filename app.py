@@ -166,54 +166,67 @@ def genera_turni_automatici():
 
     df_lavoro = st.session_state[key_stato].copy()
     colonne_auto = ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]
-
+    
+    # Mischiamo i medici per garantire un'equa rotazione di partenza
     medici_random = strutturati.copy()
     random.shuffle(medici_random)
 
     for i in range(len(df_lavoro)):
         giorno_corrente = i + 1
         dt_corrente = datetime(anno, mese_scelto, giorno_corrente).date()
-
-        if dt_corrente.weekday() == 6:
+        
+        # Identificazione ID Weekend (Stessa identica logica del Punto 4)
+        if dt_corrente.weekday() == 6: # Domenica
             id_wk_corrente = (dt_corrente - timedelta(days=1)).strftime("%Y-%U")
         else:
             id_wk_corrente = dt_corrente.strftime("%Y-%U")
-
+            
         sett_corrente = dt_corrente.isocalendar()[1]
 
         for col in colonne_auto:
+            # Procediamo all'assegnazione solo se la cella è vuota
             if df_lavoro.at[i, col] == "":
                 for med in medici_random:
-
-                    # FILTRO 1: DESIDERATA
+                    
+                    # --- FILTRO 1: DESIDERATA ---
                     skip = False
                     if med in desiderata_map:
                         for d in desiderata_map[med]:
                             if d["giorno"] == giorno_corrente:
                                 t = d["tipo"]
-                                if t in ["ferie", "corso", "no tutto il giorno", "no giorno"]:
-                                    skip = True
-                                elif t == "no diurno" and col in ["MeCAU 1", "MeCAU 2"]:
-                                    skip = True
-                                elif t == "no notte" and col == "MeCAU Notte":
-                                    skip = True
-                    if skip:
-                        continue
+                                if t in ["ferie", "corso", "no tutto il giorno", "no giorno"]: skip = True
+                                elif t == "no diurno" and col in ["MeCAU 1", "MeCAU 2"]: skip = True
+                                elif t == "no notte" and col == "MeCAU Notte": skip = True
+                    if skip: continue
 
-                    # FILTRO 2: SMONTO NOTTE (X+1)
+                    # --- FILTRO 2: SMONTO NOTTE (X+1) ---
                     if i > 0:
-                        if df_lavoro.at[i - 1, "MeCAU Notte"] == med:
+                        if df_lavoro.at[i-1, "MeCAU Notte"] == med:
                             continue
 
-                    # FILTRO 3: ANTI-DUPLICATO (Stesso giorno)
+                    # --- FILTRO 3: ANTI-DUPLICATO (Nello stesso giorno) ---
                     if (df_lavoro.iloc[i][colonne_auto] == med).any():
                         continue
 
-                    # FILTRO 4: LIMITE WEEKEND (MAX 2)
+                    # --- FILTRO 4: LIMITE TURNI SETTIMANALI SOLARI (MAX 4) ---
+                    # Sincronizzato sul calcolo ISO-calendar del Punto 4
+                    turni_questa_settimana = 0
+                    for d_idx in range(len(df_lavoro)):
+                        dt_controllo = datetime(anno, mese_scelto, d_idx + 1).date()
+                        # Contiamo solo i turni della settimana solare corrente
+                        if dt_controllo.isocalendar()[1] == sett_corrente:
+                            # Verifichiamo se il medico è presente in una delle colonne dei turni
+                            if (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
+                                turni_questa_settimana += 1
+                    
+                    if turni_questa_settimana >= 4:
+                        continue # Salta questo medico, ha già raggiunto i 4 turni settimanali
+
+                    # --- FILTRO 5: LIMITE WEEKEND (MAX 2) ---
                     if dt_corrente.weekday() >= 5:
                         wk_lavorati = set()
                         for d_idx in range(len(df_lavoro)):
-                            dt_temp = datetime(anno, mese_scelto, d_idx + 1).date()
+                            dt_temp = datetime(anno, mese_scelto, d_idx+1).date()
                             if dt_temp.weekday() >= 5:
                                 if (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
                                     if dt_temp.weekday() == 6:
@@ -221,27 +234,17 @@ def genera_turni_automatici():
                                     else:
                                         id_w = dt_temp.strftime("%Y-%U")
                                     wk_lavorati.add(id_w)
-
+                        
                         if len(wk_lavorati) >= 2 and id_wk_corrente not in wk_lavorati:
                             continue
 
-                    # FILTRO 5: LIMITE SETTIMANALE (MAX 4)
-                    turni_sett = 0
-                    for d_idx in range(len(df_lavoro)):
-                        dt_temp = datetime(anno, mese_scelto, d_idx + 1).date()
-                        if dt_temp.isocalendar()[1] == sett_corrente:
-                            if (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
-                                turni_sett += 1
-                    if turni_sett >= 4:
-                        continue
-
-                    # FILTRO 6: LIMITE NOTTI (MAX 4)
+                    # --- FILTRO 6: LIMITE NOTTI MENSILI (MAX 4) ---
                     if col == "MeCAU Notte":
                         notti_fatte = (df_lavoro["MeCAU Notte"] == med).sum()
                         if notti_fatte >= 4:
                             continue
 
-                    # Assegna se passa tutti i filtri
+                    # Se supera indenne tutti i blocchi del "Tetris", assegna il turno!
                     df_lavoro.at[i, col] = med
                     break
 
