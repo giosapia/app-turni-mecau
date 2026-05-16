@@ -114,91 +114,94 @@ st.sidebar.caption(f"Basato su {giorni_f} giorni feriali (7.6h/gg)")
 # --- FINE LOGICA ORE ---
 # --- NUOVA FUNZIONE: GENERAZIONE AUTOMATICA (Protocollo 2.1) ---
 def genera_turni_automatici():
-    # Verifichiamo che la griglia sia già stata inizializzata
     if key_stato not in st.session_state:
         return
-        
+
     df_lavoro = st.session_state[key_stato].copy()
-    target = ore_dovute_calcolate
-    colonne_auto = ["MeCAU Notte", "MeCAU 1", "MeCAU 2"]
+    colonne_auto = ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]
     
-    for col in colonne_auto:
-        for i in range(len(df_lavoro)):
-            # Operiamo solo sulle celle vuote
-            if df_lavoro.iloc[i][col] == "" or df_lavoro.iloc[i][col] is None:
-                giorno_corrente = i + 1
-                dt_corrente = datetime(anno, mese_scelto, giorno_corrente).date()
-                
-                candidati_validi = []
-                for med in strutturati:
-                    # --- FILTRI HARD (VINCOLI DI SICUREZZA) ---
-                    # 1. Desiderata (Ferie, Corsi, No Notte, ecc.)
-                    ha_vincolo = False
+    # Mischiamo i medici per evitare che i primi in lista prendano sempre i primi turni
+    medici_random = strutturati.copy()
+    random.shuffle(medici_random)
+
+    for i in range(len(df_lavoro)):
+        giorno_corrente = i + 1
+        dt_corrente = datetime(anno, mese_scelto, giorno_corrente).date()
+        
+        # Identificazione ID Weekend (stessa logica del Punto 4)
+        if dt_corrente.weekday() == 6: # Domenica
+            id_wk_corrente = (dt_corrente - timedelta(days=1)).strftime("%Y-%U")
+        else:
+            id_wk_corrente = dt_corrente.strftime("%Y-%U")
+            
+        sett_corrente = dt_corrente.isocalendar()[1]
+
+        for col in colonne_auto:
+            # Procediamo solo se la cella è vuota
+            if df_lavoro.at[i, col] == "":
+                for med in medici_random:
+                    
+                    # --- FILTRO 1: DESIDERATA ---
+                    skip = False
                     if med in desiderata_map:
                         for d in desiderata_map[med]:
                             if d["giorno"] == giorno_corrente:
-                                if d["tipo"] in ["ferie", "corso", "no tutto il giorno"]: ha_vincolo = True
-                                if d["tipo"] == "no diurno" and col in ["MeCAU 1", "MeCAU 2"]: ha_vincolo = True
-                                if d["tipo"] == "no notte" and col == "MeCAU Notte": ha_vincolo = True
-                    if ha_vincolo: continue
+                                t = d["tipo"]
+                                if t in ["ferie", "corso", "no tutto il giorno", "no giorno"]: skip = True
+                                elif t == "no diurno" and col in ["MeCAU 1", "MeCAU 2"]: skip = True
+                                elif t == "no notte" and col == "MeCAU Notte": skip = True
+                    if skip: continue
 
-                    # 2. Smonto Notte (X+1)
-                    if i > 0 and df_lavoro.at[i-1, "MeCAU Notte"] == med: continue
-                    
-                    # 3. Limite 4 Notti
-                    if col == "MeCAU Notte" and (df_lavoro["MeCAU Notte"] == med).sum() >= 4: continue
-                    
-                   # 4. Limite 2 Weekend (Hard Constraint)
-                    is_wk = dt_corrente.weekday() >= 5
-                    if is_wk:
-                        # Contiamo quanti giorni di weekend ha già in tabella
-                        giorni_wk_lavorati = 0
+                    # --- FILTRO 2: SMONTO NOTTE (X+1) ---
+                    if i > 0:
+                        if df_lavoro.at[i-1, "MeCAU Notte"] == med:
+                            continue
+
+                    # --- FILTRO 3: ANTI-DUPLICATO (Stesso giorno) ---
+                    if (df_lavoro.iloc[i][colonne_auto] == med).any():
+                        continue
+
+                    # --- FILTRO 4: LIMITE WEEKEND (MAX 2) ---
+                    if dt_corrente.weekday() >= 5:
+                        wk_lavorati = set()
+                        # Controlliamo i weekend già assegnati nel mese
                         for d_idx in range(len(df_lavoro)):
                             dt_temp = datetime(anno, mese_scelto, d_idx+1).date()
                             if dt_temp.weekday() >= 5:
                                 if (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
-                                    giorni_wk_lavorati += 1
+                                    # Calcoliamo l'ID weekend per quel giorno
+                                    if dt_temp.weekday() == 6:
+                                        id_w = (dt_temp - timedelta(days=1)).strftime("%Y-%U")
+                                    else:
+                                        id_w = dt_temp.strftime("%Y-%U")
+                                    wk_lavorati.add(id_w)
                         
-                        # Se ha già raggiunto i 4 turni (2 weekend), lo escludiamo
-                        if giorni_wk_lavorati >= 4: 
+                        # Se ha già lavorato 2 weekend diversi e oggi è un NUOVO weekend, salta
+                        if len(wk_lavorati) >= 2 and id_wk_corrente not in wk_lavorati:
                             continue
-# 4b. Verifica se il medico è già assegnato ad un'altra sala nello stesso giorno
-                    # Questo impedisce i duplicati "Brancaleoni - Brancaleoni" nello stesso giorno
-                    if (df_lavoro.iloc[i][["MeCAU 1", "MeCAU 2", "MeCAU Notte"]] == med).any():
+
+                    # --- FILTRO 5: LIMITE SETTIMANALE (MAX 4) ---
+                    turni_sett = 0
+                    for d_idx in range(len(df_lavoro)):
+                        dt_temp = datetime(anno, mese_scelto, d_idx+1).date()
+                        if dt_temp.isocalendar()[1] == sett_corrente:
+                            if (df_lavoro.iloc[d_idx][colonne_auto] == med).any():
+                                turni_sett += 1
+                    if turni_sett >= 4:
                         continue
-                    # 5. Stop al raggiungimento Monte Ore
-                    # Conteggio turni già assegnati (12h ciascuno)
-                    ore_fatte = (df_lavoro == med).sum().sum() * 12
-                    # Aggiunta crediti per ferie/corsi
-                    if med in desiderata_map:
-                        for d in desiderata_map[med]:
-                            dt_des = datetime(anno, mese_scelto, d["giorno"]).date()
-                            if d["tipo"] in ["ferie", "corso"] and dt_des.weekday() < 5 and dt_des not in festivi_italiani:
-                                ore_fatte += 7.6
-                    
-                    if ore_fatte >= target: continue
 
-                    candidati_validi.append(med)
+                    # --- FILTRO 6: LIMITE NOTTI (MAX 4) ---
+                    if col == "MeCAU Notte":
+                        notti_fatte = (df_lavoro["MeCAU Notte"] == med).sum()
+                        if notti_fatte >= 4:
+                            continue
 
-                if candidati_validi:
-                    # Logica Soft: Preferenza per chi ha lavorato meno ore per equità
-                    candidati_validi.sort(key=lambda m: (df_lavoro == m).sum().sum())
-                    
-                    # Logica Soft: Weekend consecutivo (Deroga se necessario)
-                    if dt_corrente.weekday() >= 5 and i >= 7:
-                        med_scelto = candidati_validi[0]
-                        # Controlla se ha lavorato nel weekend precedente (7 giorni fa)
-                        ha_lavorato_scorso = (df_lavoro.iloc[max(0, i-7):i][colonne_auto] == med_scelto).any().any()
-                        if ha_lavorato_scorso and len(candidati_validi) > 1:
-                            med_scelto = candidati_validi[1] 
-                        df_lavoro.at[i, col] = med_scelto
-                    else:
-                        df_lavoro.at[i, col] = candidati_validi[0]
+                    # Se passa tutti i filtri, assegna!
+                    df_lavoro.at[i, col] = med
+                    break
 
-    # Aggiornamento dello stato e refresh
     st.session_state[key_stato] = df_lavoro
     st.rerun()
-st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
 
 # --- 3. LAYOUT GRAFICO E GRIGLIA ---
 
