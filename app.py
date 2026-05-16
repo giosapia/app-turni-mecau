@@ -12,7 +12,7 @@ import random
 st.set_page_config(page_title="Gestione Medici Susa", layout="wide")
 st.title("🏥 Calendario Turni MeCAU Susa")
 
-# --- 1. SIDEBAR: ANAGRAFICA E DESIDERATA (Aggiornato) ---
+# --- 1. SIDEBAR: ANAGRAFICA E DESIDERATA (Aggiornato con Countdown Ore) ---
 with st.sidebar:
     st.header("👥 Anagrafica Medici")
     
@@ -67,6 +67,43 @@ with st.sidebar:
                                 giorno = int(giorno_str)
                                 desiderata_map[med_nome].append({"tipo": tipo, "giorno": giorno})
                             except ValueError: pass
+
+    st.divider()
+
+    # --- SEZIONE VISUALIZZAZIONE LIVE: COUNTDOWN ORE STRUTTURATI ---
+    st.header("📊 Resoconto Ore Mese")
+    
+    # Recupero sicuro dei contatori generati dalla scansione del Punto 4
+    ore_con = st.session_state.get("ore_contrattuali_aggiornate", {m: 0.0 for m in strutturati})
+    ore_pa = st.session_state.get("ore_pa_aggiornate", {m: 0.0 for m in strutturati})
+    monte_ore_target = st.session_state.get("monte_ore_dinamico", 0.0)
+    
+    if monte_ore_target == 0:
+        st.info("ℹ️ Inserisci o genera dei turni per calcolare il monte ore.")
+    else:
+        for med in strutturati:
+            ore_fatte = ore_con.get(med, 0.0)
+            ore_pa_fatte = ore_pa.get(med, 0.0)
+            ore_restanti = monte_ore_target - ore_fatte
+            
+            # Assegnazione semafori visivi intelligenti
+            if ore_restanti > 12:
+                stato_colore = "🟢"  # Sotto-soglia (mancano turni)
+            elif ore_restanti >= -12:
+                stato_colore = "🟡"  # Bilanciato (target centrato con tolleranza di 1 turno)
+            else:
+                stato_colore = "🚨"  # Straordinario/Esubero orario
+                
+            titolo_expander = f"{stato_colore} **{med}** ({ore_fatte:.1f}h / {monte_ore_target:.1f}h)"
+            with st.expander(titolo_expander):
+                st.write(f"⏳ **Ore Contrattuali**: {ore_fatte:.1f} h")
+                st.write(f"💼 **Libera Prof. (PA)**: {ore_pa_fatte:.1f} h")
+                st.write(f"🎯 **Target Mese**: {monte_ore_target:.1f} h")
+                
+                if ore_restanti >= 0:
+                    st.write(f"📉 **Mancano**: {ore_restanti:.1f} h al pareggio")
+                else:
+                    st.write(f"📈 **Esubero**: {abs(ore_restanti):.1f} h")
 
     st.divider()
 # --- FINE INPUT SIDEBAR ---
