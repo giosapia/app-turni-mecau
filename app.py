@@ -1,4 +1,3 @@
-Il contenuto è generato dagli utenti e non verificato.
 import streamlit as st  # Fix #1: 'i' mancante in 'mport'
 import pandas as pd
 from datetime import datetime, timedelta
