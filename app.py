@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import calendar
 import io
-import random  # <--- Inserito per la gestione della rotazione casuale dei medici
+import random  
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -95,7 +95,7 @@ def calcola_festivi(year, month):
 
 festivi_italiani = calcola_festivi(anno, mese_scelto)
 
-# --- LOGICA CALCOLO ORE (Sostituisce il vecchio blocco sidebar) ---
+# --- LOGICA CALCOLO ORE ---
 def conta_feriali(year, month, lista_festivi):
     giorni_nel_mese = calendar.monthrange(year, month)[1]
     feriali = 0
@@ -145,7 +145,7 @@ medici_bassa = [""] + gettonisti
 
 st.subheader(f"Pianificazione Turni - {mese_testo} {anno}")
 
-# --- 🔄 INIEZIONE FUNZIONE GENERATORE AUTOMATICO BLINDATO ---
+# --- 🔄 FUNZIONE GENERATORE AUTOMATICO CORRETTA E BLINDATA SUI VINCOLI SETTIMANALI ---
 def genera_turni_automatici():
     if key_stato not in st.session_state:
         return
@@ -153,37 +153,47 @@ def genera_turni_automatici():
     df_lavoro = st.session_state[key_stato].copy()
     colonne_auto = ["MeCAU 1", "MeCAU 2", "MeCAU Notte"]
     
-    # Lista dinamica dei medici strutturati rimescolata per equità di distribuzione
+    # Rimescolamento per equità di distribuzione iniziale
     medici_random = strutturati.copy()
     random.shuffle(medici_random)
 
     for i in range(len(df_lavoro)):
         giorno_corrente = i + 1
         dt_corrente = datetime(anno, mese_scelto, giorno_corrente).date()
+        sett_corrente = dt_corrente.isocalendar()[1]
         
         for col in colonne_auto:
-            # Riempiamo solo le celle attualmente vuote
             if df_lavoro.at[i, col] == "":
                 for med in medici_random:
                     
-                    # --- 1. FILTRO INTEGRATO: SMONTO NOTTE REALE (X+1) ---
+                    # --- 1. FILTRO: SMONTO NOTTE REALE (X+1) ---
                     if i > 0 and df_lavoro.at[i - 1, "MeCAU Notte"] == med:
                         continue
                         
-                    # --- 2. FILTRO INTEGRATO: ANTI-DUPLICATO IN SALA ---
+                    # --- 2. FILTRO: ANTI-DUPLICATO NELLO STESSO GIORNO ---
                     if (df_lavoro.iloc[i][colonne_auto] == med).any():
                         continue
+
+                    # --- 3. FILTRO RIGIDO: MASSIMO 4 TURNI PER SETTIMANA SOLARE ---
+                    # Scansiona l'intera tabella del mese per contare i turni reali in questa specifica settimana solare
+                    turni_settimana_sim = 0
+                    for idx_c in range(len(df_lavoro)):
+                        dt_c = datetime(anno, mese_scelto, idx_c + 1).date()
+                        if dt_c.isocalendar()[1] == sett_corrente:
+                            if (df_lavoro.iloc[idx_c][colonne_auto] == med).any():
+                                turni_settimana_sim += 1
+                                
+                    if turni_settimana_sim >= 4:
+                        continue  # Salta il medico se ha già raggiunto o superato i 4 turni in questa settimana
 
                     # --- TEST INSERIMENTO PROVVISORIO ---
                     df_lavoro.at[i, col] = med
                     
-                    # --- SIMULAZIONE COERENTE DEI VINCOLI DEL PUNTO 4 ---
+                    # --- SIMULAZIONE DEI RESTANTI VINCOLI MENSILI (MONITORAGGIO SPOSTATO) ---
                     valido = True
-                    conteggio_sett_sim = {nome: {} for nome in strutturati}
                     conteggio_notti_sim = {nome: 0 for nome in strutturati}
                     wk_lavorati_sim = {nome: set() for nome in strutturati}
                     
-                    # Ripercorriamo l'avanzamento dello stato fino ad oggi
                     for idx_s in range(i + 1):
                         g_s = idx_s + 1
                         dt_s = datetime(anno, mese_scelto, g_s).date()
@@ -204,15 +214,6 @@ def genera_turni_automatici():
                         
                         for m_s in lavoro_oggi_s:
                             if m_s in strutturati:
-                                # Controllo Turni Settimanali (Massimo 4 per settimana solare)
-                                sett_s = dt_s.isocalendar()[1]
-                                if sett_s not in conteggio_sett_sim[m_s]:
-                                    conteggio_sett_sim[m_s][sett_s] = 0
-                                conteggio_sett_sim[m_s][sett_s] += 1
-                                if conteggio_sett_sim[m_s][sett_s] > 4:
-                                    valido = False
-                                    break
-                                    
                                 # Controllo Weekend Mensili (Massimo 2)
                                 if is_weekend_s:
                                     wk_lavorati_sim[m_s].add(id_wk_s)
@@ -229,18 +230,17 @@ def genera_turni_automatici():
                         if not valido:
                             break
                             
-                        # --- VERIFICA DESIDERATA ATTIVE NELLA SIMULAZIONE ---
+                        # --- VERIFICA DESIDERATA ATTIVE ---
                         if med in desiderata_map:
                             for d in desiderata_map[med]:
                                 if d["giorno"] == giorno_corrente:
                                     t = d["tipo"]
                                     if t in ["ferie", "corso", "no tutto il giorno", "no giorno"]: valido = False
                                     elif t == "no diurno" and col in ["MeCAU 1", "MeCAU 2"]: valido = False
-                                    elif t == "no notte" and col == "MeCAU Notte": valido = False
+                                    elif t == "no notte" and col == "MeCAU Notte"]: valido = False
                         if not valido:
                             break
 
-                    # Se la simulazione rileva violazioni, svuota la cella e prova il medico successivo
                     if not valido:
                         df_lavoro.at[i, col] = ""
                     else:
@@ -254,7 +254,7 @@ def reset_griglia():
         del st.session_state[key_stato]
     st.rerun()
 
-# Layout pulsanti di controllo sopra la tabella
+# Layout pulsanti di controllo
 col_btn1, col_btn2 = st.columns(2)
 with col_btn1:
     if st.button("⚡ Generazione Automatica Strutturati", use_container_width=True):
@@ -282,13 +282,12 @@ if not df_editabile.equals(st.session_state[key_stato]):
     st.session_state[key_stato] = df_editabile
     st.rerun()
 
-# --- 4. VERIFICA VINCOLI (Punto 6a & 6b + Settimanale/PA + Desiderata Avanzati) ---
+# --- 4. VERIFICA VINCOLI ---
 st.divider()
 st.subheader("🛡️ Controllo Vincoli e Sicurezza")
 
 errori_rilevati = []
 avvisi_carenza = []
-
 notti_temp = {}
 
 # --- [FASE 1] INIZIALIZZAZIONE CONTATORI ---
@@ -310,7 +309,6 @@ for index, row in df_editabile.iterrows():
     else:
         id_weekend = dt_corrente.strftime("%Y-%U")
     
-    # --- LOGICA ACCREDITO ORE DESIDERATA (FERIE/CORSO) ---
     for med, lista_des in desiderata_map.items():
         if med in strutturati and is_feriale:
             for d in lista_des:
@@ -334,7 +332,6 @@ for index, row in df_editabile.iterrows():
         m_nome = medico["nome"]
         m_sala = medico["sala"]
         
-        # 1. VINCOLO DESIDERATA
         if m_nome in desiderata_map:
             for d in desiderata_map[m_nome]:
                 if d["giorno"] == giorno_corrente:
@@ -349,7 +346,6 @@ for index, row in df_editabile.iterrows():
                     if conflitto:
                         errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} ha un vincolo '{tipo.upper()}'!")
 
-        # 2. REGOLE SPECIFICHE STRUTTURATI
         if m_nome in strutturati:
             sett_n = dt_corrente.isocalendar()[1]
             if sett_n not in conteggio_settimanale[m_nome]:
@@ -366,7 +362,6 @@ for index, row in df_editabile.iterrows():
             if m_sala == "Bassa Intensità":
                 errori_rilevati.append(f"🔴 **{row['Giorno']}**: {m_nome} (Strutturato) non può stare in Bassa Intensità!")
 
-            # Controllo Riposo e Conteggio Notti
             if not medico["is_pa"]:
                 if m_nome in notti_temp:
                     distanza = giorno_corrente - notti_temp[m_nome]
@@ -379,7 +374,6 @@ for index, row in df_editabile.iterrows():
                     notti_temp[m_nome] = giorno_corrente
                     conteggio_notti_mensili[m_nome] += 1 
 
-    # VINCOLO 6a: UNICITÀ GIORNALIERA
     nomi_soli = [d["nome"] for d in lavoro_oggi]
     if len(nomi_soli) != len(set(nomi_soli)):
         duplicati = set([x for x in nomi_soli if nomi_soli.count(x) > 1])
@@ -403,7 +397,7 @@ for medico, settimane in conteggio_settimanale.items():
         elif 0 < n_turni < 3:
             avvisi_carenza.append(f"🔵 **Settimana {sett}**: {medico} ha solo {n_turni} turni. Minimo richiesto: 3.")
 
-# Sidebar (Invariata)
+# Sidebar
 st.sidebar.divider()
 st.sidebar.subheader("📈 Bilancio Ore Strutturati")
 for medico in strutturati:
@@ -421,7 +415,7 @@ if errori_rilevati or avvisi_carenza:
 else:
     st.success("✅ Vincoli di sicurezza rispettati.")
     
-# --- 5. FUNZIONE GENERAZIONE PDF E PULSANTE ---
+# --- 5. FUNZIONE GENERAZIONE PDF ---
 st.divider()
 st.subheader("🖨️ Esportazione")
 
@@ -446,7 +440,6 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
     elementi.append(Spacer(1, 6))
 
     dati_per_tabella = [df.columns.tolist()] + df.values.tolist()
-
     tabella = Table(dati_per_tabella, colWidths=[60, 185, 185, 185, 185])
     
     stile = TableStyle([
@@ -465,23 +458,4 @@ def genera_pdf_mecau(df, mese_nome, anno_scelto):
     for i, riga in enumerate(dati_per_tabella[1:], start=1):
         giorno_str = str(riga[0]).lower()
         if "🔴" in giorno_str or "dom" in giorno_str or "sab" in giorno_str:
-            stile.add('BACKGROUND', (0, i), (-1, i), colors.yellow)
-
-    tabella.setStyle(stile)
-    elementi.append(tabella)
-    
-    doc.build(elementi)
-    buffer.seek(0)
-    return buffer
-
-try:
-    file_pdf = genera_pdf_mecau(df_editabile, mese_testo, anno)
-    
-    st.download_button(
-        label="📥 Scarica Turni in PDF",
-        data=file_pdf,
-        file_name=f"Turni_MeCAU_Susa_{mese_testo}_{anno}.pdf",
-        mime="application/pdf",
-    )
-except Exception as e:
-    st.error(f"Errore nella generazione del PDF: {e}")
+            stile.add('BACKGROUND', (0, i),
