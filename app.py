@@ -362,6 +362,14 @@ for medico, settimane in conteggio_settimanale.items():
         if n_turni > 4:
             errori_rilevati.append(f"🚨 **Settimana {sett}**: {medico} ha {n_turni} turni (Max: 4)!")
 
+# --- SALVATAGGIO ORE PER LA SIDEBAR ---
+st.session_state["ore_contrattuali_aggiornate"] = ore_contrattuali_mese
+st.session_state["ore_pa_aggiornate"] = ore_pa_mese
+
+# Visualizzazione Errori (questo lo avevi già, lascialo sotto)
+if errori_rilevati or avvisi_carenza:
+# ... resto del codice invariato ...
+
 if errori_rilevati or avvisi_carenza:
     for err in errori_rilevati: st.error(err)
     for warn in avvisi_carenza: st.warning(warn)
